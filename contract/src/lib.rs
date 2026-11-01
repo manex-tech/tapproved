@@ -314,7 +314,7 @@ fn canonical_approval_message(payment: &Payment, contract_id: &AccountId, networ
     let network = network_id.as_bytes();
     let recipient = payment.recipient_id.as_bytes();
     let mut out = Vec::with_capacity(128 + contract.len() + network.len() + recipient.len());
-    out.extend_from_slice(b"TAPPROVED\\0\\x01");
+    out.extend_from_slice(b"TAPPROVED\0\x01");
     out.extend_from_slice(&(contract.len() as u32).to_le_bytes());
     out.extend_from_slice(contract);
     out.extend_from_slice(&(network.len() as u32).to_le_bytes());
