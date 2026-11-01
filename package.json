@@ -1,0 +1,14 @@
+{
+  "name": "tapproved",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hardware-backed spending approval for AI agents on NEAR.",
+  "scripts": {
+    "start": "node relay/server.js",
+    "check": "node --check relay/server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
