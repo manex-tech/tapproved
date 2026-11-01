@@ -40,3 +40,18 @@ jobs:
       - name: Build contract Wasm
         working-directory: contract
         run: cargo build --target wasm32-unknown-unknown --release
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PlatformIO
+        run: pip install platformio==6.1.18
+      - name: Build ESP32 firmware
+        working-directory: firmware
+        run: pio run
