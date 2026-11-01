@@ -1,4 +1,4 @@
-use near_sdk::json_types::U128;
+use near_sdk::json_types::{U128, U64};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{env, near_bindgen, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseResult};
@@ -67,19 +67,19 @@ pub struct PolicyView {
     pub daily_limit_yocto: U128,
     pub allowed_recipients: Vec<AccountId>,
     pub paused: bool,
-    pub next_payment_id: u64,
+    pub next_payment_id: U64,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct PaymentView {
-    pub id: u64,
+    pub id: U64,
     pub agent_id: AccountId,
     pub recipient_id: AccountId,
     pub amount_yocto: U128,
-    pub nonce: u64,
-    pub created_at_ns: u64,
-    pub expires_at_ns: u64,
+    pub nonce: U64,
+    pub created_at_ns: U64,
+    pub expires_at_ns: U64,
     pub status: PaymentStatus,
     pub hardware_approved: bool,
 }
@@ -87,7 +87,7 @@ pub struct PaymentView {
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct DailyUsageView {
-    pub utc_day: u64,
+    pub utc_day: U64,
     pub reserved_yocto: U128,
     pub daily_limit_yocto: U128,
 }
@@ -179,7 +179,7 @@ impl Tapproved {
             daily_limit_yocto: U128(self.daily_limit_yocto),
             allowed_recipients: self.allowed_recipients.clone(),
             paused: self.paused,
-            next_payment_id: self.next_payment_id,
+            next_payment_id: U64(self.next_payment_id),
         }
     }
 
@@ -346,7 +346,7 @@ impl Tapproved {
     pub fn get_daily_usage(&self, utc_day: u64) -> DailyUsageView {
         let reserved = self.daily_usage.iter().find(|entry| entry.utc_day == utc_day)
             .map(|entry| entry.reserved_yocto).unwrap_or(0);
-        DailyUsageView { utc_day, reserved_yocto: U128(reserved), daily_limit_yocto: U128(self.daily_limit_yocto) }
+        DailyUsageView { utc_day: U64(utc_day), reserved_yocto: U128(reserved), daily_limit_yocto: U128(self.daily_limit_yocto) }
     }
 }
 
@@ -372,13 +372,13 @@ fn canonical_approval_message(payment: &Payment, contract_id: &AccountId, networ
 
 fn payment_to_view(payment: &Payment) -> PaymentView {
     PaymentView {
-        id: payment.id,
+        id: U64(payment.id),
         agent_id: payment.agent_id.clone(),
         recipient_id: payment.recipient_id.clone(),
         amount_yocto: U128(payment.amount_yocto),
-        nonce: payment.nonce,
-        created_at_ns: payment.created_at_ns,
-        expires_at_ns: payment.expires_at_ns,
+        nonce: U64(payment.nonce),
+        created_at_ns: U64(payment.created_at_ns),
+        expires_at_ns: U64(payment.expires_at_ns),
         status: payment.status,
         hardware_approved: payment.hardware_approved,
     }
@@ -432,6 +432,27 @@ mod tests {
         assert_eq!(state.active_payment_id, None);
         assert_eq!(env::storage_read(b"presence_name:fixture"), Some(b"legacy-value".to_vec()));
         assert_eq!(env::storage_read(b"tapproved:migration:incompatible-state:v1"), Some(b"completed".to_vec()));
+    }
+
+    #[test]
+    fn payment_view_serializes_u64_values_as_exact_json_strings() {
+        let payment = Payment {
+            id: 42,
+            agent_id: account("agent.testnet"),
+            recipient_id: account("merchant.testnet"),
+            amount_yocto: 123,
+            nonce: 42,
+            created_at_ns: 1_793_519_712_345_678_901,
+            expires_at_ns: 1_793_520_012_345_678_901,
+            status: PaymentStatus::Pending,
+            hardware_approved: false,
+        };
+
+        let json = near_sdk::serde_json::to_value(payment_to_view(&payment)).unwrap();
+        assert_eq!(json["created_at_ns"], "1793519712345678901");
+        assert_eq!(json["expires_at_ns"], "1793520012345678901");
+        assert_eq!(json["id"], "42");
+        assert_eq!(json["nonce"], "42");
     }
 
     #[test]
