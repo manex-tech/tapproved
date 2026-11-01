@@ -1,0 +1,35 @@
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+**/secrets.h
+**/*secret*
+**/*credential*
+**/*token*
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+id_rsa
+id_ed25519
+authorized_keys
+
+# Dependencies
+node_modules/
+
+# Build output
+target/
+build/
+dist/
+coverage/
+.cache/
+.platformio/
+.pio/
+
+# Logs and OS/editor files
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
