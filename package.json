@@ -6,7 +6,7 @@
   "description": "Hardware-backed spending approval for AI agents on NEAR.",
   "scripts": {
     "start": "node relay/server.js",
-    "check": "node --check relay/server.js"
+    "check": "node --check relay/server.js && node --check relay/protocol.js && node --test relay/protocol.test.js"
   },
   "engines": {
     "node": ">=22"
