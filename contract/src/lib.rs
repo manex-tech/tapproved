@@ -1,7 +1,7 @@
 use near_sdk::json_types::U128;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize, Serialize};
-use near_sdk::{env, near_bindgen, AccountId, PanicOnDefault};
+use near_sdk::{env, near_bindgen, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseResult};
 
 const REQUEST_TTL_NS: u64 = 300_000_000_000;
 const NANOS_PER_DAY: u64 = 86_400_000_000_000;
@@ -30,6 +30,7 @@ pub struct Tapproved {
 pub enum PaymentStatus {
     Pending,
     Approved,
+    Processing,
     Paid,
     Failed,
     Expired,
@@ -200,6 +201,71 @@ impl Tapproved {
         view
     }
 
+    /// Permissionless hardware approval. Signed bytes are reconstructed from stored state.
+    pub fn approve_spend(&mut self, payment_id: u64, signature: Vec<u8>) -> Promise {
+        let index = self.active_index(payment_id);
+        let payment = self.payments[index].clone();
+        if payment.status != PaymentStatus::Pending { env::panic_str("payment is not pending hardware approval"); }
+        if env::block_timestamp() > payment.expires_at_ns { env::panic_str("payment approval has expired"); }
+        let sig: [u8; 64] = signature.as_slice().try_into().unwrap_or_else(|_| env::panic_str("signature must be 64 bytes"));
+        let key: [u8; 32] = self.device_public_key.as_slice().try_into().unwrap_or_else(|_| env::panic_str("invalid stored device key"));
+        let message = canonical_approval_message(&payment, &env::current_account_id(), &self.network_id);
+        if !env::ed25519_verify(&sig, &message, &key) { env::panic_str("invalid hardware approval signature"); }
+        self.payments[index].hardware_approved = true;
+        self.payments[index].status = PaymentStatus::Processing;
+        self.transfer_promise(payment)
+    }
+
+    /// Execute an auto-approved payment below the soft limit.
+    pub fn execute_approved_spend(&mut self, payment_id: u64) -> Promise {
+        let index = self.active_index(payment_id);
+        let payment = self.payments[index].clone();
+        if payment.status != PaymentStatus::Approved || payment.amount_yocto > self.soft_limit_yocto {
+            env::panic_str("payment is not eligible for automatic execution");
+        }
+        if env::block_timestamp() > payment.expires_at_ns { env::panic_str("payment has expired"); }
+        self.payments[index].status = PaymentStatus::Processing;
+        self.transfer_promise(payment)
+    }
+
+    #[private]
+    pub fn on_transfer_result(&mut self, payment_id: u64) -> PaymentView {
+        let index = self.active_index(payment_id);
+        if self.payments[index].status != PaymentStatus::Processing { env::panic_str("payment is not processing"); }
+        let payment = self.payments[index].clone();
+        match env::promise_result(0) {
+            PromiseResult::Successful(_) => self.payments[index].status = PaymentStatus::Paid,
+            PromiseResult::Failed => {
+                self.release_reservation(&payment);
+                self.payments[index].status = PaymentStatus::Failed;
+            }
+        }
+        self.active_payment_id = None;
+        payment_to_view(&self.payments[index])
+    }
+
+    fn active_index(&self, payment_id: u64) -> usize {
+        if self.active_payment_id != Some(payment_id) { env::panic_str("payment is not active"); }
+        self.payments.iter().position(|p| p.id == payment_id).unwrap_or_else(|| env::panic_str("payment not found"))
+    }
+
+    fn release_reservation(&mut self, payment: &Payment) {
+        let day = payment.created_at_ns / NANOS_PER_DAY;
+        let usage = self.daily_usage.iter_mut().find(|entry| entry.utc_day == day)
+            .unwrap_or_else(|| env::panic_str("daily reservation record missing"));
+        usage.reserved_yocto = usage.reserved_yocto.checked_sub(payment.amount_yocto)
+            .unwrap_or_else(|| env::panic_str("daily reservation accounting underflow"));
+    }
+
+    fn transfer_promise(&self, payment: Payment) -> Promise {
+        let args = near_sdk::serde_json::json!({ "payment_id": payment.id }).to_string().into_bytes();
+        Promise::new(payment.recipient_id)
+            .transfer(NearToken::from_yoctonear(payment.amount_yocto))
+            .then(Promise::new(env::current_account_id()).function_call(
+                "on_transfer_result".to_string(), args, NearToken::from_yoctonear(0), Gas::from_tgas(10)
+            ))
+    }
+
     /// Permissionless expiry. Expired reservations are released from their
     /// original UTC-day bucket, not from the caller's current day.
     pub fn expire_payment(&mut self, payment_id: u64) {
@@ -240,6 +306,26 @@ impl Tapproved {
             .map(|entry| entry.reserved_yocto).unwrap_or(0);
         DailyUsageView { utc_day, reserved_yocto: U128(reserved), daily_limit_yocto: U128(self.daily_limit_yocto) }
     }
+}
+
+/// Canonical Tapproved v1 approval payload. Integers use little-endian encoding.
+fn canonical_approval_message(payment: &Payment, contract_id: &AccountId, network_id: &str) -> Vec<u8> {
+    let contract = contract_id.as_bytes();
+    let network = network_id.as_bytes();
+    let recipient = payment.recipient_id.as_bytes();
+    let mut out = Vec::with_capacity(128 + contract.len() + network.len() + recipient.len());
+    out.extend_from_slice(b"TAPPROVED\0\x01");
+    out.extend_from_slice(&(contract.len() as u32).to_le_bytes());
+    out.extend_from_slice(contract);
+    out.extend_from_slice(&(network.len() as u32).to_le_bytes());
+    out.extend_from_slice(network);
+    out.extend_from_slice(&payment.id.to_le_bytes());
+    out.extend_from_slice(&(recipient.len() as u32).to_le_bytes());
+    out.extend_from_slice(recipient);
+    out.extend_from_slice(&payment.amount_yocto.to_le_bytes());
+    out.extend_from_slice(&payment.nonce.to_le_bytes());
+    out.extend_from_slice(&payment.expires_at_ns.to_le_bytes());
+    out
 }
 
 fn payment_to_view(payment: &Payment) -> PaymentView {
