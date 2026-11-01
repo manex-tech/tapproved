@@ -1,0 +1,16 @@
+{
+  "protocol": "Tapproved approval message v1",
+  "purpose": "Public deterministic interoperability fixture. The corresponding private seed is intentionally not stored.",
+  "inputs": {
+    "contract_id": "tapproved.testnet",
+    "network_id": "testnet",
+    "payment_id": 42,
+    "recipient_id": "merchant.testnet",
+    "amount_yocto": "123456789012345678901234567890",
+    "nonce": 42,
+    "expires_at_ns": "1793520000000000000"
+  },
+  "public_key_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+  "message_hex": "54415050524f56454400011100000074617070726f7665642e746573746e657407000000746573746e65742a00000000000000100000006d65726368616e742e746573746e6574d20a3f4eeee073c3f60fe98e010000002a0000000000000000008f01f0dce318",
+  "signature_hex": "b95fe907aecd36dd17ba4b98b3966d71b8ea87dbd2ab5d4c0a484f1e104b449ff2a10419476c41da42419461c8140509f99c6c9de4839348e68cd49bd3199702"
+}
