@@ -3,7 +3,10 @@ use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{env, near_bindgen, AccountId, PanicOnDefault};
 
-/// Persistent policy configuration established once at contract deployment.
+const REQUEST_TTL_NS: u64 = 300_000_000_000;
+const NANOS_PER_DAY: u64 = 86_400_000_000_000;
+
+/// Persistent policy and payment authorization state.
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 pub struct Tapproved {
@@ -17,6 +20,38 @@ pub struct Tapproved {
     allowed_recipients: Vec<AccountId>,
     paused: bool,
     next_payment_id: u64,
+    payments: Vec<Payment>,
+    active_payment_id: Option<u64>,
+    daily_usage: Vec<DailyUsage>,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(crate = "near_sdk::serde", rename_all = "snake_case")]
+pub enum PaymentStatus {
+    Pending,
+    Approved,
+    Paid,
+    Failed,
+    Expired,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, Clone)]
+pub struct Payment {
+    pub id: u64,
+    pub agent_id: AccountId,
+    pub recipient_id: AccountId,
+    pub amount_yocto: u128,
+    pub nonce: u64,
+    pub created_at_ns: u64,
+    pub expires_at_ns: u64,
+    pub status: PaymentStatus,
+    pub hardware_approved: bool,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, Clone)]
+struct DailyUsage {
+    utc_day: u64,
+    reserved_yocto: u128,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -34,10 +69,31 @@ pub struct PolicyView {
     pub next_payment_id: u64,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(crate = "near_sdk::serde")]
+pub struct PaymentView {
+    pub id: u64,
+    pub agent_id: AccountId,
+    pub recipient_id: AccountId,
+    pub amount_yocto: U128,
+    pub nonce: u64,
+    pub created_at_ns: u64,
+    pub expires_at_ns: u64,
+    pub status: PaymentStatus,
+    pub hardware_approved: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(crate = "near_sdk::serde")]
+pub struct DailyUsageView {
+    pub utc_day: u64,
+    pub reserved_yocto: U128,
+    pub daily_limit_yocto: U128,
+}
+
 #[near_bindgen]
 impl Tapproved {
-    /// Initialize a fresh policy. The deploying predecessor becomes its owner.
-    /// All amounts are exact yoctoNEAR values.
+    /// One-time testnet policy initialization. The predecessor becomes owner.
     #[init]
     pub fn new(
         agent_id: AccountId,
@@ -48,21 +104,10 @@ impl Tapproved {
         allowed_recipients: Vec<AccountId>,
         network_id: String,
     ) -> Self {
-        let soft = soft_limit_yocto.0;
-        let hard = hard_limit_yocto.0;
-        let daily = daily_limit_yocto.0;
-
-        if let Err(reason) = validate_policy(
-            &device_public_key,
-            soft,
-            hard,
-            daily,
-            &allowed_recipients,
-            &network_id,
-        ) {
+        let (soft, hard, daily) = (soft_limit_yocto.0, hard_limit_yocto.0, daily_limit_yocto.0);
+        if let Err(reason) = validate_policy(&device_public_key, soft, hard, daily, &allowed_recipients, &network_id) {
             env::panic_str(reason);
         }
-
         Self {
             owner_id: env::predecessor_account_id(),
             agent_id,
@@ -74,10 +119,12 @@ impl Tapproved {
             allowed_recipients,
             paused: false,
             next_payment_id: 1,
+            payments: Vec::new(),
+            active_payment_id: None,
+            daily_usage: Vec::new(),
         }
     }
 
-    /// Read the initialized policy. This method does not expose mutable state.
     pub fn get_policy(&self) -> PolicyView {
         PolicyView {
             owner_id: self.owner_id.clone(),
@@ -92,146 +139,167 @@ impl Tapproved {
             next_payment_id: self.next_payment_id,
         }
     }
+
+    /// Creates an authorization request. Small payments are auto-approved;
+    /// larger payments remain Pending for the hardware-signature stage.
+    /// No NEAR transfer occurs in this stage.
+    pub fn request_spend(&mut self, recipient_id: AccountId, amount_yocto: U128) -> PaymentView {
+        if env::predecessor_account_id() != self.agent_id {
+            env::panic_str("only the registered agent may request a spend");
+        }
+        if self.paused {
+            env::panic_str("spending is paused");
+        }
+        if self.active_payment_id.is_some() {
+            env::panic_str("another payment is still active");
+        }
+        let amount = amount_yocto.0;
+        if amount == 0 {
+            env::panic_str("amount must be greater than zero");
+        }
+        if amount > self.hard_limit_yocto {
+            env::panic_str("amount exceeds hard per-payment limit");
+        }
+        if !self.allowed_recipients.contains(&recipient_id) {
+            env::panic_str("recipient is not allowlisted");
+        }
+
+        let now = env::block_timestamp();
+        let expiry = now.checked_add(REQUEST_TTL_NS).unwrap_or_else(|| env::panic_str("expiry overflow"));
+        let day = now / NANOS_PER_DAY;
+        let current = self.daily_usage.iter().find(|entry| entry.utc_day == day)
+            .map(|entry| entry.reserved_yocto).unwrap_or(0);
+        let next_total = current.checked_add(amount).unwrap_or_else(|| env::panic_str("daily usage overflow"));
+        if next_total > self.daily_limit_yocto {
+            env::panic_str("request exceeds remaining UTC daily limit");
+        }
+
+        if let Some(entry) = self.daily_usage.iter_mut().find(|entry| entry.utc_day == day) {
+            entry.reserved_yocto = next_total;
+        } else {
+            self.daily_usage.push(DailyUsage { utc_day: day, reserved_yocto: amount });
+        }
+
+        let id = self.next_payment_id;
+        self.next_payment_id = id.checked_add(1).unwrap_or_else(|| env::panic_str("payment id overflow"));
+        let status = if amount <= self.soft_limit_yocto { PaymentStatus::Approved } else { PaymentStatus::Pending };
+        let payment = Payment {
+            id,
+            agent_id: self.agent_id.clone(),
+            recipient_id,
+            amount_yocto: amount,
+            nonce: id,
+            created_at_ns: now,
+            expires_at_ns: expiry,
+            status,
+            hardware_approved: false,
+        };
+        let view = payment_to_view(&payment);
+        self.payments.push(payment);
+        self.active_payment_id = Some(id);
+        view
+    }
+
+    /// Permissionless expiry. Expired reservations are released from their
+    /// original UTC-day bucket, not from the caller's current day.
+    pub fn expire_payment(&mut self, payment_id: u64) {
+        let now = env::block_timestamp();
+        let index = self.payments.iter().position(|p| p.id == payment_id)
+            .unwrap_or_else(|| env::panic_str("payment not found"));
+        let payment = self.payments[index].clone();
+        if self.active_payment_id != Some(payment_id) {
+            env::panic_str("payment is not active");
+        }
+        if now <= payment.expires_at_ns {
+            env::panic_str("payment has not expired");
+        }
+        if payment.status != PaymentStatus::Pending && payment.status != PaymentStatus::Approved {
+            env::panic_str("payment is not expirable");
+        }
+        let day = payment.created_at_ns / NANOS_PER_DAY;
+        if let Some(usage) = self.daily_usage.iter_mut().find(|entry| entry.utc_day == day) {
+            usage.reserved_yocto = usage.reserved_yocto.checked_sub(payment.amount_yocto)
+                .unwrap_or_else(|| env::panic_str("daily reservation accounting underflow"));
+        } else {
+            env::panic_str("daily reservation record missing");
+        }
+        self.payments[index].status = PaymentStatus::Expired;
+        self.active_payment_id = None;
+    }
+
+    pub fn get_payment(&self, payment_id: u64) -> Option<PaymentView> {
+        self.payments.iter().find(|p| p.id == payment_id).map(payment_to_view)
+    }
+
+    pub fn get_active_payment(&self) -> Option<PaymentView> {
+        self.active_payment_id.and_then(|id| self.get_payment(id))
+    }
+
+    pub fn get_daily_usage(&self, utc_day: u64) -> DailyUsageView {
+        let reserved = self.daily_usage.iter().find(|entry| entry.utc_day == utc_day)
+            .map(|entry| entry.reserved_yocto).unwrap_or(0);
+        DailyUsageView { utc_day, reserved_yocto: U128(reserved), daily_limit_yocto: U128(self.daily_limit_yocto) }
+    }
 }
 
-/// Pure validation is separated from environment access so invariants can be
-/// unit-tested without a mocked blockchain context.
+fn payment_to_view(payment: &Payment) -> PaymentView {
+    PaymentView {
+        id: payment.id,
+        agent_id: payment.agent_id.clone(),
+        recipient_id: payment.recipient_id.clone(),
+        amount_yocto: U128(payment.amount_yocto),
+        nonce: payment.nonce,
+        created_at_ns: payment.created_at_ns,
+        expires_at_ns: payment.expires_at_ns,
+        status: payment.status,
+        hardware_approved: payment.hardware_approved,
+    }
+}
+
 fn validate_policy(
-    device_public_key: &[u8],
-    soft_limit_yocto: u128,
-    hard_limit_yocto: u128,
-    daily_limit_yocto: u128,
-    allowed_recipients: &[AccountId],
-    network_id: &str,
+    device_public_key: &[u8], soft_limit_yocto: u128, hard_limit_yocto: u128,
+    daily_limit_yocto: u128, allowed_recipients: &[AccountId], network_id: &str,
 ) -> Result<(), &'static str> {
-    if device_public_key.len() != 32 {
-        return Err("device_public_key must contain exactly 32 Ed25519 public-key bytes");
-    }
-    if soft_limit_yocto == 0 {
-        return Err("soft_limit_yocto must be greater than zero");
-    }
-    if hard_limit_yocto == 0 || soft_limit_yocto > hard_limit_yocto {
-        return Err("limits must satisfy 0 < soft_limit_yocto <= hard_limit_yocto");
-    }
-    if daily_limit_yocto < hard_limit_yocto {
-        return Err("daily_limit_yocto must be at least hard_limit_yocto");
-    }
-    if allowed_recipients.is_empty() {
-        return Err("allowed_recipients must contain at least one account");
-    }
-    if network_id != "testnet" {
-        return Err("network_id must be testnet; mainnet is not supported");
-    }
+    if device_public_key.len() != 32 { return Err("device_public_key must contain exactly 32 Ed25519 public-key bytes"); }
+    if soft_limit_yocto == 0 { return Err("soft_limit_yocto must be greater than zero"); }
+    if hard_limit_yocto == 0 || soft_limit_yocto > hard_limit_yocto { return Err("limits must satisfy 0 < soft_limit_yocto <= hard_limit_yocto"); }
+    if daily_limit_yocto < hard_limit_yocto { return Err("daily_limit_yocto must be at least hard_limit_yocto"); }
+    if allowed_recipients.is_empty() { return Err("allowed_recipients must contain at least one account"); }
+    if network_id != "testnet" { return Err("network_id must be testnet; mainnet is not supported"); }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn account(value: &str) -> AccountId {
-        value.parse().expect("valid test account")
-    }
-
-    fn valid_policy() -> Result<(), &'static str> {
-        validate_policy(
-            &[7_u8; 32],
-            10,
-            100,
-            1_000,
-            &[account("merchant.testnet")],
-            "testnet",
-        )
-    }
+    fn account(value: &str) -> AccountId { value.parse().expect("valid test account") }
 
     #[test]
     fn accepts_valid_policy() {
-        assert!(valid_policy().is_ok());
+        assert!(validate_policy(&[7; 32], 10, 100, 1_000, &[account("merchant.testnet")], "testnet").is_ok());
     }
-
     #[test]
-    fn rejects_public_key_with_wrong_length() {
-        let result = validate_policy(
-            &[7_u8; 31],
-            10,
-            100,
-            1_000,
-            &[account("merchant.testnet")],
-            "testnet",
-        );
-        assert_eq!(
-            result,
-            Err("device_public_key must contain exactly 32 Ed25519 public-key bytes")
-        );
+    fn rejects_wrong_key_length() {
+        assert!(validate_policy(&[7; 31], 10, 100, 1_000, &[account("merchant.testnet")], "testnet").is_err());
     }
-
     #[test]
     fn rejects_zero_soft_limit() {
-        let result = validate_policy(
-            &[7_u8; 32],
-            0,
-            100,
-            1_000,
-            &[account("merchant.testnet")],
-            "testnet",
-        );
-        assert_eq!(result, Err("soft_limit_yocto must be greater than zero"));
+        assert!(validate_policy(&[7; 32], 0, 100, 1_000, &[account("merchant.testnet")], "testnet").is_err());
     }
-
     #[test]
-    fn rejects_soft_limit_above_hard_limit() {
-        let result = validate_policy(
-            &[7_u8; 32],
-            101,
-            100,
-            1_000,
-            &[account("merchant.testnet")],
-            "testnet",
-        );
-        assert_eq!(
-            result,
-            Err("limits must satisfy 0 < soft_limit_yocto <= hard_limit_yocto")
-        );
+    fn rejects_soft_above_hard_limit() {
+        assert!(validate_policy(&[7; 32], 101, 100, 1_000, &[account("merchant.testnet")], "testnet").is_err());
     }
-
     #[test]
-    fn rejects_daily_limit_below_hard_limit() {
-        let result = validate_policy(
-            &[7_u8; 32],
-            10,
-            100,
-            99,
-            &[account("merchant.testnet")],
-            "testnet",
-        );
-        assert_eq!(
-            result,
-            Err("daily_limit_yocto must be at least hard_limit_yocto")
-        );
+    fn rejects_daily_below_hard_limit() {
+        assert!(validate_policy(&[7; 32], 10, 100, 99, &[account("merchant.testnet")], "testnet").is_err());
     }
-
     #[test]
-    fn rejects_empty_recipient_allowlist() {
-        let result = validate_policy(&[7_u8; 32], 10, 100, 1_000, &[], "testnet");
-        assert_eq!(
-            result,
-            Err("allowed_recipients must contain at least one account")
-        );
+    fn rejects_empty_allowlist() {
+        assert!(validate_policy(&[7; 32], 10, 100, 1_000, &[], "testnet").is_err());
     }
-
     #[test]
-    fn rejects_non_testnet_network() {
-        let result = validate_policy(
-            &[7_u8; 32],
-            10,
-            100,
-            1_000,
-            &[account("merchant.testnet")],
-            "mainnet",
-        );
-        assert_eq!(
-            result,
-            Err("network_id must be testnet; mainnet is not supported")
-        );
+    fn rejects_mainnet() {
+        assert!(validate_policy(&[7; 32], 10, 100, 1_000, &[account("merchant.testnet")], "mainnet").is_err());
     }
 }
