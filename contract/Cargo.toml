@@ -8,7 +8,8 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-near-sdk = "5.17.2"
+borsh = "1.5.7"
+near-sdk = "=5.17.2"
 
 [dev-dependencies]
-near-sdk = { version = "5.17.2", features = ["unit-testing"] }
+near-sdk = { version = "=5.17.2", features = ["unit-testing"] }
