@@ -16,17 +16,26 @@ A NEAR contract enforces per-transaction and daily spending limits, recipient re
 
 ## Project status
 
-All components are planned. No component is represented as implemented or audited at this stage.
+The project is under active development. The contract's first three implementation stages are merged into `main`, and the main-branch GitHub Actions checks have passed. The contract has **not yet been deployed** to NEAR testnet.
 
 | Component | Status |
 |---|---|
-| On-chain spending policy contract | Planned |
-| Relay payment routes | Planned |
-| ESP32 device signing | Planned |
+| On-chain policy initialization and validation | Implemented; CI passing |
+| Spend requests, limits, reservations and expiry | Implemented; CI passing |
+| Device signature verification and transfer callbacks | Implemented; CI passing |
+| Contract deployment to NEAR testnet | Not yet deployed |
+| ESP32 firmware and physical approval flow | Next implementation stage |
+| Relay payment integration | Scaffold only |
 | Local simulator | Planned |
-| Scripted agent | Planned |
+| Scripted AI agent | Planned |
 | NEAR AI Cloud agent | Planned |
 | Dashboard | Planned |
+
+### Validation status
+
+GitHub Actions currently runs the Rust contract tests, builds the contract for `wasm32-unknown-unknown`, and checks the Node.js relay syntax. The latest main-branch workflow completed successfully.
+
+The current contract test suite is not a substitute for end-to-end testing. Signature interoperability vectors, transfer success/failure integration tests, and full device-to-contract testing remain outstanding. The project has not been independently audited.
 
 ## Origin
 
