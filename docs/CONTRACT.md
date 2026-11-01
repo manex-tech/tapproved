@@ -1,49 +1,54 @@
-# Contract initialization
+# Contract stages
 
-A1 establishes the initial on-chain spending policy. It deliberately does not
-implement payment requests, approval verification, transfers, or daily usage
-accounting; those belong to later contract stages.
+## A1: policy initialization
 
-## Constructor
+The one-time initializer stores the owner, registered agent, 32-byte Ed25519
+device public key, testnet network identifier, exact yoctoNEAR limits, and
+recipient allowlist. The deploying predecessor becomes the owner.
 
-The contract exposes the one-time initializer:
+## A2: spend requests and authorization state
 
-- `agent_id`: NEAR account permitted to request spends in a later stage.
-- `device_public_key`: exactly 32 raw Ed25519 public-key bytes.
-- `soft_limit_yocto`: amount above which hardware approval will be required.
-- `hard_limit_yocto`: absolute per-payment ceiling.
-- `daily_limit_yocto`: absolute UTC-day spending ceiling.
-- `allowed_recipients`: non-empty recipient allowlist.
-- `network_id`: currently restricted to `testnet`.
+The registered agent is the only account allowed to call `request_spend`.
+Each request must have a positive amount, an allowlisted recipient, and an
+amount no greater than the hard per-payment limit.
 
-The predecessor account that deploys and initializes the contract becomes
-`owner_id`. Amounts use NEAR SDK's JSON `U128` wrapper to avoid JavaScript
-number precision loss.
+Requests at or below the soft limit enter `approved` automatically. Requests
+above the soft limit enter `pending` and require the later hardware-signature
+stage. Both paths reserve the amount against the UTC-day cap immediately.
+This prevents an outstanding approval from being used to over-commit the
+daily budget.
 
-## Initialization invariants
+Only one payment may be active at a time. Each request receives a monotonically
+increasing ID used as its nonce and expires five minutes after creation.
+Anyone may call `expire_payment` after expiry. Expiry releases the reservation
+from the UTC-day bucket in which the request was created, including when the
+request crosses midnight.
 
-- The device key must contain exactly 32 bytes.
-- The soft limit must be positive and no greater than the hard limit.
-- The daily limit must be at least the hard limit.
-- The recipient allowlist cannot be empty.
-- Only the NEAR testnet network identifier is accepted.
-- The initial policy is unpaused and the first payment identifier is 1.
-- The initializer is one-time through NEAR's `#[init]` guard.
+The contract exposes `get_payment`, `get_active_payment`, and
+`get_daily_usage` views. Amounts are returned as JSON `U128` values to avoid
+JavaScript number precision loss.
 
-## Read method
+## Important A2 boundary
 
-`get_policy` returns the persisted policy. It does not expose a mutation path.
+A2 creates authorization state only. It does not transfer NEAR, mark a payment
+as paid, or implement hardware signature verification. An `approved` status
+means authorization has passed policy checks; it does not mean funds moved.
+A later stage will verify the device's domain-separated signature and execute
+the transfer. Transfer success/failure callbacks will finalize the state and
+settle or release the reservation.
 
-## Not implemented in A1
+## Invariants
 
-No spend request, signature verification, nonce/replay handling, payment state
-machine, daily-cap reservation, NEAR transfer, owner administration, or device
-key rotation is implemented yet. The public key is stored as raw bytes; its
-Ed25519 verification and canonical signing payload are subsequent work.
+- Mainnet is rejected; this project is testnet-only.
+- Only the registered agent can create spend requests.
+- The recipient allowlist applies to every request.
+- The hard per-payment cap cannot be bypassed by hardware approval.
+- The daily cap counts reserved amounts, including pending approvals.
+- A payment cannot be requested while another payment is active.
+- An expired payment cannot be revived; its reservation is released once.
+- No request method performs a transfer in this stage.
 
 ## Local verification
-
-From the repository root:
 
 ```sh
 cd contract
