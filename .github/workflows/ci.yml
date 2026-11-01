@@ -24,3 +24,19 @@ jobs:
         run: npm ci
       - name: Check JavaScript syntax
         run: npm run check
+
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Run contract tests
+        working-directory: contract
+        run: cargo test
+      - name: Build contract Wasm
+        working-directory: contract
+        run: cargo build --target wasm32-unknown-unknown --release
