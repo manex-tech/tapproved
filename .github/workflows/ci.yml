@@ -40,6 +40,17 @@ jobs:
       - name: Build contract Wasm
         working-directory: contract
         run: cargo build --target wasm32-unknown-unknown --release
+      - name: Generate Wasm checksum
+        run: sha256sum contract/target/wasm32-unknown-unknown/release/tapproved_contract.wasm > contract/target/wasm32-unknown-unknown/release/SHA256SUMS.txt
+      - name: Upload deployable contract artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tapproved-contract-wasm
+          path: |
+            contract/target/wasm32-unknown-unknown/release/tapproved_contract.wasm
+            contract/target/wasm32-unknown-unknown/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
 
   firmware:
     runs-on: ubuntu-latest
