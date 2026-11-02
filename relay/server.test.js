@@ -478,3 +478,102 @@ test("payment status endpoint rejects an unknown contract lifecycle status", asy
     assert.deepEqual(await response.json(), { error: "near_rpc_failed" });
   });
 });
+
+
+test("hardware approval endpoint authenticates and submits only the payment ID", async () => {
+  let calls = 0;
+  await withServer({
+    ...authOptions(),
+    approveHardwarePayment: async (paymentId) => {
+      calls += 1;
+      assert.equal(paymentId, "42");
+      return {
+        outcome: "submitted",
+        payment_id: "42",
+        transaction_hash: "approval-tx",
+        payment: { id: "42", status: "processing", hardware_approved: true }
+      };
+    }
+  }, async (base) => {
+    const unauthorized = await fetch(`${base}/v1/payments/42/approve`, { method: "POST" });
+    assert.equal(unauthorized.status, 401);
+    assert.equal(calls, 0);
+
+    const approved = await fetch(`${base}/v1/payments/42/approve`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(approved.status, 202);
+    assert.deepEqual(await approved.json(), {
+      outcome: "submitted",
+      payment_id: "42",
+      transaction_hash: "approval-tx",
+      payment: { id: "42", status: "processing", hardware_approved: true }
+    });
+    assert.equal(calls, 1);
+  });
+});
+
+test("hardware approval endpoint fails closed without serial approval service and rejects request bodies", async () => {
+  await withServer(authOptions(), async (base) => {
+    const disabled = await fetch(`${base}/v1/payments/42/approve`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(disabled.status, 503);
+    assert.deepEqual(await disabled.json(), { error: "hardware_approval_not_configured" });
+  });
+
+  await withServer({
+    ...authOptions(),
+    approveHardwarePayment: async () => { throw new Error("must not be called"); }
+  }, async (base) => {
+    const withBody = await fetch(`${base}/v1/payments/42/approve`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ signature: "caller-controlled" })
+    });
+    assert.equal(withBody.status, 400);
+    assert.deepEqual(await withBody.json(), { error: "request_body_not_allowed" });
+  });
+});
+
+test("hardware approval endpoint maps typed service failures and unknown outcomes", async () => {
+  await withServer({
+    ...authOptions(),
+    approveHardwarePayment: async () => {
+      const error = new Error("payment is not pending");
+      error.status = 409;
+      error.code = "payment_not_pending";
+      throw error;
+    }
+  }, async (base) => {
+    const conflict = await fetch(`${base}/v1/payments/42/approve`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(conflict.status, 409);
+    assert.deepEqual(await conflict.json(), { error: "payment_not_pending" });
+  });
+
+  await withServer({
+    ...authOptions(),
+    approveHardwarePayment: async () => ({
+      outcome: "unknown",
+      payment_id: "42",
+      transaction_hash: null,
+      payment: null,
+      instruction: "Do not resubmit."
+    })
+  }, async (base) => {
+    const unknown = await fetch(`${base}/v1/payments/42/approve`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(unknown.status, 202);
+    assert.equal((await unknown.json()).outcome, "unknown");
+  });
+});
