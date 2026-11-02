@@ -693,6 +693,41 @@ mod tests {
         let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
     }
 
+
+    #[test]
+    fn transfer_callback_success_marks_payment_paid() {
+        use near_sdk::test_utils::testing_env_with_promise_results;
+        use near_sdk::test_utils::VMContextBuilder;
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        c.payments[0].status = PaymentStatus::Processing;
+        testing_env_with_promise_results(
+            VMContextBuilder::new().current_account_id(account("tapproved.testnet"))
+                .predecessor_account_id(account("tapproved.testnet")).block_timestamp(FIXTURE_NOW).build(),
+            PromiseResult::Successful(vec![]),
+        );
+        let result = c.on_transfer_result(42);
+        assert_eq!(result.status, PaymentStatus::Paid);
+        assert_eq!(c.active_payment_id, None);
+        assert_eq!(c.daily_usage[0].reserved_yocto, FIXTURE_AMOUNT);
+    }
+
+    #[test]
+    fn transfer_callback_failure_marks_failed_and_releases_reservation() {
+        use near_sdk::test_utils::testing_env_with_promise_results;
+        use near_sdk::test_utils::VMContextBuilder;
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        c.payments[0].status = PaymentStatus::Processing;
+        testing_env_with_promise_results(
+            VMContextBuilder::new().current_account_id(account("tapproved.testnet"))
+                .predecessor_account_id(account("tapproved.testnet")).block_timestamp(FIXTURE_NOW).build(),
+            PromiseResult::Failed,
+        );
+        let result = c.on_transfer_result(42);
+        assert_eq!(result.status, PaymentStatus::Failed);
+        assert_eq!(c.active_payment_id, None);
+        assert_eq!(c.daily_usage[0].reserved_yocto, 0);
+    }
+
     #[test]
     fn expiry_releases_reservation_and_clears_active_payment() {
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
