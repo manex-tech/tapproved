@@ -139,7 +139,9 @@ CI runs Node syntax/tests, Rust contract tests plus a release Wasm build, and an
 - [Testnet deployment status](docs/TESTNET-DEPLOYMENT.md)
 - [Hardware approval milestone](docs/TESTNET-HARDWARE-APPROVAL-MILESTONE.md)
 - [Approval protocol v1](docs/APPROVAL-PROTOCOL.md)
-- [Firmware and protocol audit](docs/FIRMWARE-PROTOCOL-AUDIT.md)\n- [ESP32 security assessment](docs/ESP32-SECURITY-ASSESSMENT.md)
+- [Firmware and protocol audit](docs/FIRMWARE-PROTOCOL-AUDIT.md)
+- [ESP32 security assessment](docs/ESP32-SECURITY-ASSESSMENT.md)
+- [Device-key rotation procedure](docs/DEVICE-KEY-ROTATION.md)
 - [Local simulator](docs/SIMULATOR.md)
 
 ## License
