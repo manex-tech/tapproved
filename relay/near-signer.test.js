@@ -32,7 +32,7 @@ function accessKey(permission) {
 const restrictedPermission = {
   FunctionCall: {
     receiver_id: CANONICAL_CONTRACT_ID,
-    method_names: ["request_spend"],
+    method_names: ["request_spend", "execute_approved_spend"],
     allowance: "1000000000000000000000000"
   }
 };
@@ -69,7 +69,7 @@ test("accepts only the exact request_spend function-call key with finite allowan
   assert.deepEqual(result, {
     public_key: publicKey,
     receiver_id: CANONICAL_CONTRACT_ID,
-    method_names: ["request_spend"],
+    method_names: ["request_spend", "execute_approved_spend"],
     allowance_yocto: "1000000000000000000000000"
   });
 });
@@ -168,17 +168,14 @@ test("creates a signer and calls only request_spend with zero deposit", async ()
   });
 
   assert.equal(calls, 1);
-  assert.deepEqual(captured, {
-    contractId: CANONICAL_CONTRACT_ID,
-    methodName: "request_spend",
-    args: {
-      recipient_id: "merchant.testnet",
-      amount_yocto: "123456789"
-    },
-    gas: 30_000_000_000_000n,
-    deposit: 0n,
-    waitUntil: "FINAL"
+  assert.equal(captured.methodName, "request_spend");
+  assert.deepEqual(captured.args, {
+    recipient_id: "merchant.testnet",
+    amount_yocto: "123456789"
   });
+  assert.equal(captured.gas, 30_000_000_000_000n);
+  assert.equal(captured.deposit, 0n);
+  assert.equal(captured.waitUntil, "FINAL");
   assert.equal(result.transaction_hash, "finalized-transaction-hash");
   assert.equal(result.payment.id, "42");
   assert.equal(signer.signerAccountId, CANONICAL_AGENT_ID);
@@ -206,4 +203,107 @@ test("refuses to submit when the configured key is not least-privilege", async (
     }
   }), SignerConfigurationError);
   assert.equal(submitted, false);
+});
+
+
+test("automatically executes an approved payment and reads its final contract state", async () => {
+  const calls = [];
+  class MockProvider {}
+  class MockAccount {
+    async getAccessKeyList() { return accessKey(restrictedPermission); }
+    async callFunctionRaw(args) {
+      calls.push(args);
+      if (args.methodName === "request_spend") {
+        const payment = {
+          id: "43",
+          agent_id: CANONICAL_AGENT_ID,
+          recipient_id: "merchant.testnet",
+          amount_yocto: "123456789",
+          nonce: "43",
+          expires_at_ns: "1793519712345678901",
+          status: "approved",
+          hardware_approved: false
+        };
+        return {
+          status: { SuccessValue: Buffer.from(JSON.stringify(payment)).toString("base64") },
+          transaction_outcome: { id: "request-transaction-hash" }
+        };
+      }
+      assert.equal(args.methodName, "execute_approved_spend");
+      assert.deepEqual(args.args, { payment_id: 43 });
+      return { status: { SuccessValue: "" }, transaction_outcome: { id: "execution-transaction-hash" } };
+    }
+  }
+  const signer = await createNearAgentSigner({
+    env,
+    sdk: {
+      Account: MockAccount,
+      JsonRpcProvider: MockProvider,
+      KeyPair: { fromString: () => ({ getPublicKey: () => ({ toString: () => publicKey }) }) },
+      teraToGas: () => 30_000_000_000_000n
+    },
+    getPayment: async (id, options) => {
+      assert.equal(id, "43");
+      assert.equal(options.env, env);
+      return {
+        id: "43",
+        agent_id: CANONICAL_AGENT_ID,
+        recipient_id: "merchant.testnet",
+        amount_yocto: "123456789",
+        nonce: "43",
+        created_at_ns: "1793519412345678901",
+        expires_at_ns: "1793519712345678901",
+        status: "paid",
+        hardware_approved: false
+      };
+    }
+  });
+  const result = await signer.requestSpend({
+    recipient_id: "merchant.testnet",
+    amount_yocto: "123456789"
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].methodName, "request_spend");
+  assert.equal(calls[1].methodName, "execute_approved_spend");
+  assert.equal(calls[1].deposit, 0n);
+  assert.equal(result.transaction_hash, "request-transaction-hash");
+  assert.equal(result.execution_transaction_hash, "execution-transaction-hash");
+  assert.equal(result.payment.status, "paid");
+});
+
+test("does not execute payments that require physical approval", async () => {
+  let calls = 0;
+  class MockProvider {}
+  class MockAccount {
+    async getAccessKeyList() { return accessKey(restrictedPermission); }
+    async callFunctionRaw() {
+      calls += 1;
+      const payment = {
+        id: "44", agent_id: CANONICAL_AGENT_ID,
+        recipient_id: "merchant.testnet", amount_yocto: "123456789",
+        nonce: "44", expires_at_ns: "1793519712345678901",
+        status: "pending", hardware_approved: false
+      };
+      return {
+        status: { SuccessValue: Buffer.from(JSON.stringify(payment)).toString("base64") },
+        transaction_outcome: { id: "pending-request-hash" }
+      };
+    }
+  }
+  const signer = await createNearAgentSigner({
+    env,
+    sdk: {
+      Account: MockAccount,
+      JsonRpcProvider: MockProvider,
+      KeyPair: { fromString: () => ({ getPublicKey: () => ({ toString: () => publicKey }) }) },
+      teraToGas: () => 30_000_000_000_000n
+    }
+  });
+  const result = await signer.requestSpend({
+    recipient_id: "merchant.testnet",
+    amount_yocto: "123456789"
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.payment.status, "pending");
+  assert.equal(result.execution_transaction_hash, null);
 });
