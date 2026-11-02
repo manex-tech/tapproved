@@ -69,9 +69,34 @@ bool appendString(uint8_t* out, size_t& offset, const char* value) {
   return true;
 }
 
+bool isValidRequestId(const char* value) {
+  if (!value || strlen(value) != 36) return false;
+  for (size_t i = 0; i < 36; ++i) {
+    const bool separator = i == 8 || i == 13 || i == 18 || i == 23;
+    if (separator) {
+      if (value[i] != '-') return false;
+    } else if (!((value[i] >= '0' && value[i] <= '9') ||
+                 (value[i] >= 'a' && value[i] <= 'f') ||
+                 (value[i] >= 'A' && value[i] <= 'F'))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void printEnvelopeError(const char* request_id, const char* code) {
+  if (isValidRequestId(request_id)) {
+    Serial.printf("{\\"frame_version\\":1,\\"request_id\\":\\"%s\\",\\"error\\":\\"%s\\"}\\n", request_id, code);
+  } else {
+    Serial.printf("{\\"error\\":\\"%s\\"}\\n", code);
+  }
+}
+
 bool encodeApproval(const JsonDocument& doc, uint8_t* out, size_t& out_len) {
   const char* contract_id = doc["contract_id"] | "";
   const char* network_id = doc["network_id"] | "";
+  const char* request_id = doc["request_id"] | "";
+  if ((doc["frame_version"] | 0) != 1 || !isValidRequestId(request_id)) return false;
   const char* recipient_id = doc["recipient_id"] | "";
   const char* amount = doc["amount_yocto"] | "";
   uint64_t payment_id, nonce, expires_at_ns;
