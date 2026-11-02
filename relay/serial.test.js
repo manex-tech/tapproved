@@ -313,14 +313,14 @@ test("reconnects after an unexpected device reset and ignores the interrupted re
     ...signed,
     frame_version: 1,
     request_id: firstRequest.request_id
-  }) + "\\n");
+  }) + "\n");
   assert.equal(bridge.pending, true);
 
   port.receive(JSON.stringify({
     ...signed,
     frame_version: 1,
     request_id: nextRequest.request_id
-  }) + "\\n");
+  }) + "\n");
   const result = await next;
   assert.equal(result.signature_hex, signed.signature_hex);
   await bridge.disconnect();
