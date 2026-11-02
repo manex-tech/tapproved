@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -144,5 +144,86 @@ test("corrupt journal fails closed instead of allowing a fresh reservation", asy
       /corrupt/
     );
     assert.equal((await readFile(path, "utf8")), "{broken");
+  });
+});
+
+
+test("migrates v1 journal and durably suppresses duplicate approval and expiry operations", async () => {
+  await withStore(async (path) => {
+    await writeFile(path, JSON.stringify({ version: 1, records: [] }), "utf8");
+    const first = new JsonIdempotencyStore(path);
+    const approval = await first.beginOperation(agentId, "71", "approval");
+    assert.equal(approval.created, true);
+    await first.markOperationUncertain(agentId, "71", "approval");
+    const expiry = await first.beginOperation(agentId, "72", "expiry");
+    assert.equal(expiry.created, true);
+    await first.completeOperation(agentId, "72", "expiry", "expiry-hash");
+
+    const restarted = new JsonIdempotencyStore(path);
+    const approvalReplay = await restarted.beginOperation(agentId, "71", "approval");
+    const expiryReplay = await restarted.beginOperation(agentId, "72", "expiry");
+    assert.equal(approvalReplay.created, false);
+    assert.equal(approvalReplay.operation.state, "uncertain");
+    assert.equal(expiryReplay.created, false);
+    assert.equal(expiryReplay.operation.state, "submitted");
+    await restarted.confirmOperation(agentId, "72", "expiry", "expired");
+    assert.equal((await restarted.getOperation(agentId, "72", "expiry")).state, "confirmed");
+
+    const parsed = JSON.parse(await readFile(path, "utf8"));
+    assert.equal(parsed.version, 2);
+    assert.equal(parsed.operations.length, 2);
+  });
+});
+
+test("reconciles an unresolved request only against an exact contract payment match", async () => {
+  await withStore(async (path) => {
+    const store = new JsonIdempotencyStore(path);
+    await store.reserve({ agentId, idempotencyKey: key, payment });
+    await store.transition(agentId, key, "submitting");
+    const unresolved = await store.listUnresolvedPaymentRequests(agentId);
+    assert.equal(unresolved.length, 1);
+
+    await assert.rejects(
+      store.reconcileSubmitted(agentId, key, {
+        id: "73",
+        agent_id: agentId,
+        recipient_id: "other.testnet",
+        amount_yocto: payment.amount_yocto,
+        status: "pending"
+      }),
+      /does not match/
+    );
+
+    const reconciled = await store.reconcileSubmitted(agentId, key, {
+      id: "73",
+      agent_id: agentId,
+      recipient_id: payment.recipient_id,
+      amount_yocto: payment.amount_yocto,
+      status: "pending"
+    });
+    assert.equal(reconciled.state, "submitted");
+    assert.equal(reconciled.result.recovered, true);
+    assert.equal(reconciled.result.transaction_hash, null);
+    assert.equal(reconciled.result.payment.id, "73");
+    assert.equal((await store.listUnresolvedPaymentRequests(agentId)).length, 0);
+  });
+});
+
+test("operation confirmation requires a contract state appropriate to the operation", async () => {
+  await withStore(async (path) => {
+    const store = new JsonIdempotencyStore(path);
+    await store.beginOperation(agentId, "74", "approval");
+    await store.beginOperation(agentId, "75", "expiry");
+    await assert.rejects(
+      store.confirmOperation(agentId, "74", "approval", "pending"),
+      /does not confirm/
+    );
+    await assert.rejects(
+      store.confirmOperation(agentId, "75", "expiry", "processing"),
+      /does not confirm/
+    );
+    await store.confirmOperation(agentId, "74", "approval", "processing");
+    await store.confirmOperation(agentId, "75", "expiry", "expired");
+    assert.equal((await store.listUnresolvedOperations(agentId)).length, 0);
   });
 });
