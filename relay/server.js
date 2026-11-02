@@ -272,7 +272,7 @@ export function createRelayServer(options = {}) {
     }
 
     const transactionMatch = request.method === "GET"
-      ? pathname.match(/^\/v1\/transactions\/([1-9A-HJ-NP-Za-km-z]{43,44})$/)
+      ? pathname.match(/^\/v1\/transactions\/([^/]+)$/)
       : null;
     if (transactionMatch) {
       if (!authenticate(request)) {
