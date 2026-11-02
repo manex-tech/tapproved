@@ -64,14 +64,14 @@ All amounts and potentially 64-bit values are decimal strings. Reject JSON numbe
 Canonical defaults are NEAR Testnet, `https://rpc.testnet.near.org`, and `manextech.testnet`. Production-like configuration must fail closed if the network or contract differs from the explicitly allowed deployment.
 
 - `AGENT_API_TOKEN`: high-entropy relay credential; store only a verifier/hash where feasible and compare safely.
-- `NEAR_SIGNER_ACCOUNT_ID` and signer-key source: dedicated account/key with only the permissions required for contract calls. Prefer an OS secret store or managed signer; never commit credentials.
+- `NEAR_SIGNER_ACCOUNT_ID` is fixed to `manex-agent.testnet`. `NEAR_SIGNER_PRIVATE_KEY` must be a dedicated Ed25519 FunctionCall access key on that account, scoped to receiver `manextech.testnet`, method list exactly `request_spend`, and a finite allowance no greater than 5 NEAR. The relay verifies this permission against the live access-key list at startup and refuses FullAccess or broader keys. Prefer an OS secret store or managed signer; never commit credentials. The key must be provisioned separately by the account owner; the relay never creates or broadens keys.
 - `SERIAL_PORT`, baud rate and frame limits: explicit device transport configuration.
 - Wi-Fi SSID/password belong on the ESP32 through a local provisioning path or ignored local secrets file, never in Git or firmware constants.
 - Keep `.env.example` placeholder-only. Do not log authorization headers, private keys, full signatures or Wi-Fi credentials.
 
 ## 6. Reliability and safety invariants
 
-- The contract is the sole authority for policy and settlement.
+- The contract is the sole authority for policy and settlement. The backend agent signer is restricted to the `request_spend` method on the canonical contract and cannot transfer NEAR from the agent account.
 - A request retry with the same idempotency key must not create a second logical payment.
 - A serial retry must not cause a second signature or a second contract approval.
 - A device signature is bound to contract, network, payment ID, recipient, amount, nonce and expiry by protocol v1.
