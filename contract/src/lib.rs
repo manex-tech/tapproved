@@ -9,6 +9,7 @@ const NANOS_PER_DAY: u64 = 86_400_000_000_000;
 const MAX_RETAINED_PAYMENTS: u64 = 1_000;
 const MAX_RETAINED_DAILY_DAYS: usize = 90;
 const MAX_ALLOWED_RECIPIENTS: usize = 100;
+const TRANSFER_CALLBACK_GAS_TGAS: u64 = 30;
 
 /// Persistent policy and payment authorization state.
 #[near_bindgen]
@@ -384,6 +385,28 @@ impl Tapproved {
         payment_to_view(&self.payments.get(&payment_id).unwrap())
     }
 
+    /// Owner-only recovery after independently verifying the final transfer and failed callback receipts.
+    /// The owner attests whether the transfer succeeded; never call while its outcome is uncertain.
+    pub fn reconcile_processing_payment(&mut self, payment_id: u64, transfer_succeeded: bool) -> PaymentView {
+        self.assert_owner();
+        let payment = self.active_payment(payment_id);
+        if payment.status != PaymentStatus::Processing {
+            env::panic_str("only a processing payment can be reconciled");
+        }
+
+        let resulting_status = if transfer_succeeded {
+            self.settle_reservation(&payment);
+            PaymentStatus::Paid
+        } else {
+            self.release_reservation(&payment);
+            PaymentStatus::Failed
+        };
+        self.store_payment(Payment { status: resulting_status, ..payment.clone() });
+        emit_payment_reconciled(&payment, &self.owner_id, resulting_status);
+        self.active_payment_id = None;
+        payment_to_view(&self.payments.get(&payment_id).unwrap())
+    }
+
     fn expire_stale_active_payment(&mut self, now: u64) {
         let Some(payment_id) = self.active_payment_id else { return; };
         let payment = self.payments.get(&payment_id).cloned()
@@ -484,7 +507,7 @@ impl Tapproved {
         Promise::new(payment.recipient_id)
             .transfer(NearToken::from_yoctonear(payment.amount_yocto))
             .then(Promise::new(env::current_account_id()).function_call(
-                "on_transfer_result".to_string(), args, NearToken::from_yoctonear(0), Gas::from_tgas(10)
+                "on_transfer_result".to_string(), args, NearToken::from_yoctonear(0), Gas::from_tgas(TRANSFER_CALLBACK_GAS_TGAS)
             ))
     }
 
@@ -607,6 +630,25 @@ fn emit_policy_limits_updated(
                 "hard_limit_yocto": U128(current.1),
                 "daily_limit_yocto": U128(current.2),
             },
+            "event_timestamp_ns": U64(env::block_timestamp()),
+        }],
+    });
+    env::log_str(&format!("EVENT_JSON:{}", payload));
+}
+
+fn emit_payment_reconciled(payment: &Payment, owner_id: &AccountId, status: PaymentStatus) {
+    let payload = near_sdk::serde_json::json!({
+        "standard": "tapproved",
+        "version": "1.1.0",
+        "event": "payment_reconciled",
+        "data": [{
+            "payment_id": U64(payment.id),
+            "agent_id": &payment.agent_id,
+            "recipient_id": &payment.recipient_id,
+            "amount_yocto": U128(payment.amount_yocto),
+            "owner_id": owner_id,
+            "status": status,
+            "resolution_source": "owner_verified_transfer_receipt",
             "event_timestamp_ns": U64(env::block_timestamp()),
         }],
     });
@@ -1130,6 +1172,58 @@ mod tests {
         assert_eq!(c.active_payment_id, None);
         assert_eq!(c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY).spent_yocto.0, FIXTURE_AMOUNT);
         assert_eq!(c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY).reserved_yocto.0, 0);
+    }
+
+    #[test]
+    fn callback_execution_uses_less_than_its_30_tgas_budget() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        resolve_transfer(&mut c, 42, FIXTURE_NOW, PromiseResult::Successful(vec![]));
+        let used = env::used_gas().as_gas();
+        let budget = Gas::from_tgas(TRANSFER_CALLBACK_GAS_TGAS).as_gas();
+        assert!(used < budget, "callback used {used} gas, budget is {budget}");
+    }
+
+    #[test]
+    fn owner_can_reconcile_processing_payment_as_paid_after_verified_transfer() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        context_at("owner.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let result = c.reconcile_processing_payment(42, true);
+        assert_eq!(result.status, PaymentStatus::Paid);
+        assert_eq!(c.active_payment_id, None);
+        let usage = c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY);
+        assert_eq!(usage.spent_yocto.0, FIXTURE_AMOUNT);
+        assert_eq!(usage.reserved_yocto.0, 0);
+    }
+
+    #[test]
+    fn owner_can_reconcile_processing_payment_as_failed_after_verified_failure() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        context_at("owner.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let result = c.reconcile_processing_payment(42, false);
+        assert_eq!(result.status, PaymentStatus::Failed);
+        assert_eq!(c.active_payment_id, None);
+        let usage = c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY);
+        assert_eq!(usage.spent_yocto.0, 0);
+        assert_eq!(usage.reserved_yocto.0, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "only the owner may call this method")]
+    fn non_owner_cannot_reconcile_processing_payment() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        context_at("attacker.testnet", "tapproved.testnet", FIXTURE_NOW);
+        c.reconcile_processing_payment(42, true);
+    }
+
+    #[test]
+    #[should_panic(expected = "only a processing payment can be reconciled")]
+    fn owner_cannot_reconcile_non_processing_payment() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        context_at("owner.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let mut payment = c.payments.get(&42).unwrap().clone();
+        payment.status = PaymentStatus::Pending;
+        c.store_payment(payment);
+        c.reconcile_processing_payment(42, true);
     }
 
     #[test]
