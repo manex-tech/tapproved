@@ -35,8 +35,17 @@ export function readExpiryMonitorInterval(env = process.env) {
 export function createPaymentExpiryMonitor(options = {}) {
   const env = options.env ?? process.env;
   const expirySigner = options.expirySigner;
+  const operationStore = options.operationStore;
   if (!expirySigner || typeof expirySigner.expirePayment !== "function") {
     throw new TypeError("a restricted expiry signer is required");
+  }
+  if (!operationStore ||
+      typeof operationStore.getOperation !== "function" ||
+      typeof operationStore.beginOperation !== "function" ||
+      typeof operationStore.completeOperation !== "function" ||
+      typeof operationStore.markOperationUncertain !== "function" ||
+      typeof operationStore.confirmOperation !== "function") {
+    throw new TypeError("a durable payment operation store is required");
   }
   const readActive = options.getActivePayment ?? getActivePayment;
   const readBlockTime = options.getLatestBlockTimestampNs ?? getLatestBlockTimestampNs;
@@ -70,6 +79,36 @@ export function createPaymentExpiryMonitor(options = {}) {
       if (active.status !== "pending" && active.status !== "approved") {
         return { state: "not_expirable", payment_id: active.id, payment_status: active.status };
       }
+      const previousOperation = await operationStore.getOperation(
+        CANONICAL_AGENT_ID,
+        active.id,
+        "expiry"
+      );
+      if (previousOperation) {
+        let observedPayment = null;
+        try {
+          observedPayment = await readPayment(active.id, { env: rpcEnv });
+        } catch {
+          return { state: "recovery_required", payment_id: active.id, operation_state: previousOperation.state };
+        }
+        if (observedPayment &&
+            observedPayment.id === active.id &&
+            observedPayment.agent_id === CANONICAL_AGENT_ID &&
+            !["pending", "approved"].includes(observedPayment.status)) {
+          await operationStore.confirmOperation(
+            CANONICAL_AGENT_ID,
+            active.id,
+            "expiry",
+            observedPayment.status
+          );
+          return {
+            state: "reconciled",
+            payment_id: active.id,
+            payment_status: observedPayment.status
+          };
+        }
+        return { state: "recovery_required", payment_id: active.id, operation_state: previousOperation.state };
+      }
       if (lastAttemptedPaymentId === active.id) {
         return { state: "attempt_suppressed", payment_id: active.id };
       }
@@ -87,10 +126,37 @@ export function createPaymentExpiryMonitor(options = {}) {
         };
       }
 
-      // Set before broadcasting. If the RPC outcome becomes ambiguous, do not
-      // submit a second expiry transaction for this payment in this process.
+      const attempt = await operationStore.beginOperation(
+        CANONICAL_AGENT_ID,
+        active.id,
+        "expiry"
+      );
+      if (!attempt.created) {
+        return { state: "recovery_required", payment_id: active.id, operation_state: attempt.operation?.state };
+      }
+      // Persist before broadcast. An ambiguous failure must survive restarts.
       lastAttemptedPaymentId = active.id;
-      const submitted = await expirySigner.expirePayment(active.id);
+      let submitted;
+      try {
+        submitted = await expirySigner.expirePayment(active.id);
+      } catch (error) {
+        try {
+          await operationStore.markOperationUncertain(CANONICAL_AGENT_ID, active.id, "expiry");
+        } catch {
+          // The durable submitting marker remains for recovery.
+        }
+        throw error;
+      }
+      if (typeof submitted?.transaction_hash !== "string" || submitted.transaction_hash.length === 0) {
+        await operationStore.markOperationUncertain(CANONICAL_AGENT_ID, active.id, "expiry");
+        throw new Error("expiry signer returned no transaction hash");
+      }
+      await operationStore.completeOperation(
+        CANONICAL_AGENT_ID,
+        active.id,
+        "expiry",
+        submitted.transaction_hash
+      );
       let confirmedPayment = null;
       try {
         confirmedPayment = await readPayment(active.id, { env: rpcEnv });
@@ -104,11 +170,25 @@ export function createPaymentExpiryMonitor(options = {}) {
       if (!confirmedPayment ||
           confirmedPayment.id !== active.id ||
           confirmedPayment.agent_id !== CANONICAL_AGENT_ID ||
-          confirmedPayment.status !== "expired") {
+          !["processing", "paid", "failed", "expired", "cancelled"].includes(confirmedPayment.status)) {
         return {
           state: "submitted_unconfirmed",
           payment_id: active.id,
           transaction_hash: submitted.transaction_hash
+        };
+      }
+      await operationStore.confirmOperation(
+        CANONICAL_AGENT_ID,
+        active.id,
+        "expiry",
+        confirmedPayment.status
+      );
+      if (confirmedPayment.status !== "expired") {
+        return {
+          state: "superseded",
+          payment_id: active.id,
+          transaction_hash: submitted.transaction_hash,
+          payment_status: confirmedPayment.status
         };
       }
       return {
