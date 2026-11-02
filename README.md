@@ -21,7 +21,7 @@ This repository is under active development for the NEAR Hackathon. It is not au
 4. An automatically approved payment can be executed with `execute_approved_spend`. A pending payment requires the ESP32 to sign the canonical approval message after a physical GPIO25 press; the signature is submitted to `approve_spend`.
 5. The contract transfers NEAR from its own account and a private callback records `paid` or `failed`. Expired pending/approved payments are also cleaned up when the next valid request arrives; owner cancellation releases eligible reservations.
 
-The contract is the policy authority. The relay is currently read-only and does not yet orchestrate this complete flow.
+The contract is the policy authority. The relay now authenticates agent requests, persists idempotency state and can submit `request_spend` through a restricted agent FunctionCall key. Automatic execution, hardware approval delivery and settlement tracking remain under development.
 
 ## Current project status
 
@@ -32,9 +32,9 @@ The contract is the policy authority. The relay is currently read-only and does 
 | Testnet deployment | User-confirmed deployed and tested using NEAR CLI; see [deployment status](docs/TESTNET-DEPLOYMENT.md) |
 | ESP32 approval firmware | Implemented prototype; PlatformIO build in CI |
 | Approval protocol v1 | Documented with deterministic fixture |
-| Relay | Read-only HTTP endpoints for health, policy and active payment |
+| Relay | Authenticated payment-request API, persistent idempotency journal and restricted `request_spend` signer; auto-execution and lifecycle tracking remain incomplete |
 | Local simulator | Implemented; uses an ephemeral key not registered on-chain |
-| Agent transaction orchestration | Not implemented |
+| Agent transaction orchestration | `request_spend` submission foundation implemented; auto-execution and recovery remain incomplete |
 | Serial relay-to-device bridge | Not implemented |
 | Dashboard | Not implemented |
 | Independent security audit | Not performed |
@@ -45,13 +45,13 @@ The first recorded hardware-gated testnet payment is documented in [the hardware
 
 - **Contract:** `contract/src/lib.rs` owns policy, payment state, reservations, signature verification, transfer promises and callbacks.
 - **Firmware:** `firmware/src/main.cpp` validates the configured contract/network, reconstructs the v1 message, waits for a physical button press and signs with the device Ed25519 key.
-- **Relay:** `relay/server.js` exposes read-only HTTP endpoints. `relay/near-rpc.js` queries NEAR views.
+- **Relay:** `relay/server.js` exposes health/read views and authenticated `POST /v1/payment-requests`; `relay/payment-requests.js` validates requests and persists idempotency; `relay/near-signer.js` verifies and uses a narrowly scoped agent FunctionCall key. `relay/near-rpc.js` queries NEAR views.
 - **Protocol:** `docs/APPROVAL-PROTOCOL.md` defines the exact signed byte sequence. `protocol/v1-vector.json` is a deterministic interoperability fixture.
 - **Simulator:** `relay/simulator.js` locally demonstrates encoding and signing with a temporary keypair. It cannot authorize an on-chain payment.
 
 ## Repository setup and checks
 
-Requirements: Node.js 22+, Rust stable with `wasm32-unknown-unknown`, and PlatformIO Core 6.1.18.
+Requirements: Node.js 22.22.2 or newer, Rust stable with `wasm32-unknown-unknown`, and PlatformIO Core 6.1.18.
 
 Install Node dependencies and run checks:
 
@@ -75,13 +75,21 @@ cd firmware
 pio run
 ```
 
-Run the read-only relay from the repository root:
+Configure the relay from the repository root:
+
+```sh
+cp .env.example .env
+```
+
+Set a high-entropy `AGENT_API_TOKEN` and provide `NEAR_SIGNER_PRIVATE_KEY` only if a dedicated, already-registered FunctionCall key exists on `manex-agent.testnet`. That key must be restricted to receiver `manextech.testnet`, method `request_spend` only, and a finite allowance no greater than 5 NEAR. Do not use a FullAccess key. The relay verifies this permission against the live Testnet access-key list and refuses broader keys. Keep `.env` local; it is git-ignored.
+
+Start the relay:
 
 ```sh
 npm start
 ```
 
-The relay defaults to `https://rpc.testnet.near.org` and `manextech.testnet`. Local overrides are documented in `.env.example`; the application does not automatically load that file, so export the variables in your shell or use your preferred environment loader.
+The relay loads `.env` automatically and defaults to `https://rpc.testnet.near.org`, `manextech.testnet` and `manex-agent.testnet`. If signer configuration or access-key verification fails, the HTTP service starts without payment submission and `POST /v1/payment-requests` returns `503`. No key is created or modified by the relay.
 
 Run the local-only simulator:
 

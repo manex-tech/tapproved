@@ -5,11 +5,14 @@
   "type": "module",
   "description": "Hardware-backed spending approval for AI agents on NEAR.",
   "scripts": {
-    "start": "node relay/server.js",
-    "check": "node --check relay/server.js && node --check relay/auth.js && node --check relay/payment-requests.js && node --test relay/auth.test.js relay/near-rpc.test.js relay/protocol.test.js relay/payment-requests.test.js relay/server.test.js && node --check relay/simulator.js",
+    "start": "node --env-file-if-exists=.env relay/server.js",
+    "check": "node --check relay/server.js && node --check relay/auth.js && node --check relay/payment-requests.js && node --check relay/near-signer.js && node --test relay/auth.test.js relay/near-rpc.test.js relay/protocol.test.js relay/payment-requests.test.js relay/server.test.js relay/near-signer.test.js && node --check relay/simulator.js",
     "simulate": "node relay/simulator.js"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.22.2"
+  },
+  "dependencies": {
+    "near-api-js": "7.3.1"
   }
 }
