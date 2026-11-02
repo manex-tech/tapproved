@@ -25,7 +25,7 @@ A compromised relay may delay, replay or misroute messages, but it must not be a
 2. The relay validates syntax and bounds, resolves the key to a single logical request, and calls `request_spend` as the configured registered agent.
 3. The contract validates policy and creates the payment. The relay reads the resulting payment record from the contract; it does not invent nonce, payment ID or expiry.
 4. If the contract returns an automatically approved payment, the relay submits `execute_approved_spend` through the backend signer and reads the contract payment record again. Pending payments are never auto-executed.
-5. If the payment is pending, the relay publishes the contract-derived payment context to the ESP32 over the serial bridge.
+5. If the payment is pending, the relay obtains the contract-derived context through `GET /v1/pending-approvals`; the bounded serial module frames it for the ESP32. The HTTP-to-serial orchestration is a separate integration step.
 6. The ESP32 validates contract ID, network ID, numeric encodings and expiry, presents recipient and amount, and waits for a physical button press. It returns the v1 Ed25519 signature and public key only after approval.
 7. The relay validates the signature locally as an early error check, then submits `approve_spend` with the payment ID and signature. The contract independently verifies the signature against its registered key and its own stored payment fields.
 8. The contract transfer promise and callback determine terminal settlement. The relay observes contract state and transaction receipts; it never marks a payment Paid based only on an RPC submission acknowledgement.
@@ -41,11 +41,11 @@ Keep the implementation modular and testable:
 - `relay/near-rpc.js`: read-only JSON-RPC views and receipt/status queries with request timeouts and strict response validation.
 - `relay/near-signer.js`: isolated transaction submission interface. No secret key is accepted from HTTP request data.
 - `relay/contract.js`: typed contract method wrappers, exact decimal-string handling for u64/u128 values, and transaction outcome parsing.
-- `relay/serial.js`: serial port lifecycle, bounded newline-delimited JSON frames, correlation IDs, timeouts, reconnect behavior and one outstanding approval at a time.
+- `relay/serial.js`: implemented serial port lifecycle, bounded newline-delimited JSON frames, one outstanding approval at a time, response validation, disconnect/error handling and bounded approval timeout. The current firmware emits machine-readable JSON responses; contract signature verification and submission remain C8.
 - `relay/orchestrator.js`: payment lifecycle state machine driven by contract observations and serial events.
 - `relay/server.js`: HTTP routes, authentication, input limits, structured error mapping and graceful shutdown.
 
-The first implementation may use Node.js built-ins and small explicit interfaces. Do not add a database, cloud service or framework without a concrete requirement. The current local JSON journal persists across process restarts and fails closed on corruption, but it is not a distributed database and does not claim multi-instance production reliability.
+The serial bridge is an independently tested transport module. It is not yet wired into the HTTP approval polling route or signer; that orchestration and signature submission remain separate tasks. The first implementation may use Node.js built-ins and small explicit interfaces. Do not add a database, cloud service or framework without a concrete requirement. The current local JSON journal persists across process restarts and fails closed on corruption, but it is not a distributed database and does not claim multi-instance production reliability.
 
 ## 4. HTTP API contract
 
