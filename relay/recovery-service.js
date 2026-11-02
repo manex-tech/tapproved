@@ -28,7 +28,6 @@ export function createRecoveryService(options = {}) {
   const store = options.store;
   if (!store ||
       typeof store.listUnresolvedPaymentRequests !== "function" ||
-      typeof store.reconcileSubmitted !== "function" ||
       typeof store.listUnresolvedOperations !== "function" ||
       typeof store.confirmOperation !== "function") {
     throw new TypeError("a recoverable idempotency store is required");
@@ -62,29 +61,15 @@ export function createRecoveryService(options = {}) {
         readActive({ env: rpcEnv })
       ]);
 
-      let reconciledRequests = 0;
-      let requestRecoveryState = unresolvedRequests.length === 0 ? "none_pending" : "manual_review";
-      if (activePayment &&
-          activePayment.agent_id === agentId &&
-          typeof activePayment.id === "string" &&
-          /^[0-9]+$/.test(activePayment.id)) {
-        const matches = unresolvedRequests.filter((record) =>
-          record.payment?.recipient_id === activePayment.recipient_id &&
-          record.payment?.amount_yocto === activePayment.amount_yocto
-        );
-        if (matches.length === 1) {
-          await store.reconcileSubmitted(agentId, matches[0].idempotency_key, activePayment);
-          reconciledRequests = 1;
-          requestRecoveryState = "reconciled";
-        } else if (matches.length > 1) {
-          requestRecoveryState = "ambiguous_match";
-        } else if (unresolvedRequests.length === 0) {
-          requestRecoveryState = "none_pending";
-        } else {
-          requestRecoveryState = "active_payment_unmatched";
-        }
-      } else if (unresolvedRequests.length > 0) {
-        requestRecoveryState = "no_active_payment_manual_review";
+      const reconciledRequests = 0;
+      let requestRecoveryState = "none_pending";
+      if (unresolvedRequests.length > 0) {
+        // The contract does not store the HTTP idempotency key. Recipient and
+        // amount equality alone cannot prove which request created a payment.
+        // Never attach an active payment to a journal key by inference.
+        requestRecoveryState = activePayment
+          ? "active_payment_unattributed_manual_review"
+          : "no_active_payment_manual_review";
       }
 
       let confirmedOperations = 0;
