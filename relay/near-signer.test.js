@@ -32,7 +32,7 @@ function accessKey(permission) {
 const restrictedPermission = {
   FunctionCall: {
     receiver_id: CANONICAL_CONTRACT_ID,
-    method_names: ["request_spend", "execute_approved_spend"],
+    method_names: ["request_spend", "execute_approved_spend", "approve_spend"],
     allowance: "1000000000000000000000000"
   }
 };
@@ -69,7 +69,7 @@ test("accepts only the exact request_spend function-call key with finite allowan
   assert.deepEqual(result, {
     public_key: publicKey,
     receiver_id: CANONICAL_CONTRACT_ID,
-    method_names: ["request_spend", "execute_approved_spend"],
+    method_names: ["request_spend", "execute_approved_spend", "approve_spend"],
     allowance_yocto: "1000000000000000000000000"
   });
 });
@@ -306,4 +306,74 @@ test("does not execute payments that require physical approval", async () => {
   assert.equal(calls, 1);
   assert.equal(result.payment.status, "pending");
   assert.equal(result.execution_transaction_hash, null);
+});
+
+
+test("submits a hardware approval as 64 signature bytes and confirms contract state", async () => {
+  let captured;
+  const signatureHex = "ab".repeat(64);
+  class MockProvider {}
+  class MockAccount {
+    async getAccessKeyList() { return accessKey(restrictedPermission); }
+    async callFunctionRaw(args) {
+      captured = args;
+      return { transaction_outcome: { id: "hardware-approval-transaction" } };
+    }
+  }
+  const signer = await createNearAgentSigner({
+    env,
+    sdk: {
+      Account: MockAccount,
+      JsonRpcProvider: MockProvider,
+      KeyPair: { fromString: () => ({ getPublicKey: () => ({ toString: () => publicKey }) }) },
+      teraToGas: () => 30_000_000_000_000n
+    },
+    getPayment: async (id, options) => {
+      assert.equal(id, "45");
+      assert.equal(options.env, env);
+      return {
+        id: "45",
+        agent_id: CANONICAL_AGENT_ID,
+        recipient_id: "merchant.testnet",
+        amount_yocto: "123456789",
+        nonce: "45",
+        expires_at_ns: "1793519712345678901",
+        status: "processing",
+        hardware_approved: true
+      };
+    }
+  });
+  const result = await signer.approveSpend("45", signatureHex);
+  assert.equal(captured.methodName, "approve_spend");
+  assert.deepEqual(captured.args, {
+    payment_id: 45,
+    signature: Array.from(Buffer.from(signatureHex, "hex"))
+  });
+  assert.equal(captured.gas, 30_000_000_000_000n);
+  assert.equal(captured.deposit, 0n);
+  assert.equal(captured.waitUntil, "FINAL");
+  assert.equal(result.transaction_hash, "hardware-approval-transaction");
+  assert.equal(result.payment.status, "processing");
+});
+
+test("rejects invalid hardware approval IDs and signatures before submitting", async () => {
+  let calls = 0;
+  class MockProvider {}
+  class MockAccount {
+    async getAccessKeyList() { return accessKey(restrictedPermission); }
+    async callFunctionRaw() { calls += 1; return {}; }
+  }
+  const signer = await createNearAgentSigner({
+    env,
+    sdk: {
+      Account: MockAccount,
+      JsonRpcProvider: MockProvider,
+      KeyPair: { fromString: () => ({ getPublicKey: () => ({ toString: () => publicKey }) }) },
+      teraToGas: () => 30_000_000_000_000n
+    }
+  });
+  await assert.rejects(signer.approveSpend("0", "ab".repeat(64)), /positive canonical decimal/);
+  await assert.rejects(signer.approveSpend("46", "bad"), /64-byte hex/);
+  await assert.rejects(signer.approveSpend("9007199254740992", "ab".repeat(64)), /safe JSON integer range/);
+  assert.equal(calls, 0);
 });
