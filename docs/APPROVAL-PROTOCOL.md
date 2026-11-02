@@ -19,7 +19,7 @@ No JSON serialization, separators, null terminators for strings, floating-point 
 
 ## Shared test vector
 
-`protocol/v1-vector.json` is the normative deterministic interoperability fixture. It contains the input fields, expected encoded bytes, public key, and Ed25519 signature. The corresponding private seed is deliberately not committed.
+`protocol/v1-vector.json` is the normative deterministic interoperability fixture. It contains the input fields, expected encoded bytes, public key, and Ed25519 signature. The corresponding private seed is deliberately not committed. The fixture deliberately uses the deterministic test account `tapproved.testnet`; this is protocol test data, not the deployed contract ID. The live deployment and firmware/relay configuration use `manextech.testnet`.
 
 The Node test suite verifies both byte-for-byte encoding and Ed25519 signature verification, then confirms that changing the amount invalidates the signature. Firmware and contract tests must consume this same fixture.
 
