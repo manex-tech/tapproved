@@ -157,6 +157,7 @@ export async function getTransactionStatus(transactionHash, options = {}) {
       result.transaction?.hash !== transactionHash ||
       result.transaction?.signer_id !== signerAccountId ||
       result.transaction?.receiver_id !== contractId ||
+      !Array.isArray(result.transaction?.actions) || result.transaction.actions.length !== 1 ||
       methods.length !== 1 || !TAPPROVED_METHODS.has(methods[0]) ||
       !result.status) {
     throw new Error("NEAR RPC returned an invalid transaction status");
