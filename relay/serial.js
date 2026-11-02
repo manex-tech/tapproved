@@ -100,6 +100,7 @@ export function createSerialBridge(options = {}) {
       return;
     }
     if (!message || typeof message !== "object" || Array.isArray(message)) return;
+    if (!pending || message.payment_id !== pending.paymentId) return;
     if (message.status === "signed") {
       if (typeof message.public_key_hex !== "string" ||
           !/^[0-9a-f]{64}$/i.test(message.public_key_hex) ||
@@ -108,7 +109,6 @@ export function createSerialBridge(options = {}) {
         rejectPending(new SerialBridgeError("invalid_device_signature_frame"));
         return;
       }
-      if (!pending) return;
       const current = pending;
       pending = null;
       clearTimeout(current.timer);
@@ -213,7 +213,7 @@ export function createSerialBridge(options = {}) {
       const timer = setTimeout(() => {
         rejectPending(new SerialBridgeError("device_approval_timeout"));
       }, timeoutMs);
-      pending = { resolve, reject, timer };
+      pending = { resolve, reject, timer, paymentId: frame.payment_id };
       port.write(encoded, (error) => {
         if (error) rejectPending(new SerialBridgeError("serial_write_failed", error.message));
       });
