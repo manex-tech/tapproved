@@ -351,7 +351,7 @@ export async function createNearApprovalSigner(options = {}) {
     if (updatedPayment && (
       updatedPayment.id !== payment.id ||
       updatedPayment.agent_id !== CANONICAL_AGENT_ID ||
-      updatedPayment.status === "pending"
+      !["processing", "paid", "failed"].includes(updatedPayment.status)
     )) {
       throw new HardwareApprovalError("approval_state_not_confirmed");
     }
