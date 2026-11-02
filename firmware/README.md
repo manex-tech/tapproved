@@ -2,6 +2,16 @@
 
 Target: ESP32-WROOM-32 (PlatformIO board `esp32dev`), Arduino framework.
 
+## Canonical deployment
+
+The firmware is compiled for the Tapproved NEAR testnet deployment:
+
+- Contract: `manextech.testnet`
+- Network: `testnet`
+- Approval button: GPIO25
+
+The contract ID and network ID are compile-time constants in `src/main.cpp`. If the canonical deployment changes, update those constants, rebuild and flash the firmware, then verify the device signs the exact contract and network values used by the relay and contract.
+
 ## Build and flash
 
 Install PlatformIO Core, then run from this directory:
@@ -26,4 +36,4 @@ This is a development prototype, not hardened key custody. The seed is stored in
 
 Payment details are printed to USB serial and GPIO25 requires a physical button press. Serial output is not a trusted display: a compromised host or relay could misrepresent the request. Do not use this as a blind-signing production device. A dedicated trusted display and authenticated device-to-relay transport are required before production.
 
-The configured contract and network are fixed to `tapproved.testnet` and `testnet`. The contract remains authoritative for policy, expiry, nonce, and signature validity.
+The firmware rejects requests whose contract ID or network ID does not exactly match its compiled configuration. The contract remains authoritative for policy, expiry, nonce, and signature validity.

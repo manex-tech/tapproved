@@ -18,11 +18,11 @@ function mockFetch(resultValue, capture = {}) {
   };
 }
 
-test("calls a finality-final testnet view method and decodes JSON result bytes", async () => {
+test("defaults to the deployed Tapproved contract on NEAR testnet", async () => {
   const capture = {};
   const policy = { network_id: "testnet", paused: false, next_payment_id: 9 };
   const result = await getPolicy({
-    env: { NEAR_CONTRACT_ID: "tapproved.testnet" },
+    env: {},
     fetchImpl: mockFetch(policy, capture)
   });
   assert.deepEqual(result, policy);
@@ -30,17 +30,19 @@ test("calls a finality-final testnet view method and decodes JSON result bytes",
   assert.equal(capture.request.method, "query");
   assert.equal(capture.request.params.request_type, "call_function");
   assert.equal(capture.request.params.finality, "final");
-  assert.equal(capture.request.params.account_id, "tapproved.testnet");
+  assert.equal(capture.request.params.account_id, "manextech.testnet");
   assert.equal(capture.request.params.method_name, "get_policy");
   assert.equal(Buffer.from(capture.request.params.args_base64, "base64").toString(), "{}");
 });
 
-test("reads active payment and preserves null when there is no active payment", async () => {
+test("allows an explicit contract override and preserves null active payment", async () => {
+  const capture = {};
   const result = await getActivePayment({
     env: { NEAR_CONTRACT_ID: "demo.testnet" },
-    fetchImpl: mockFetch(null)
+    fetchImpl: mockFetch(null, capture)
   });
   assert.equal(result, null);
+  assert.equal(capture.request.params.account_id, "demo.testnet");
 });
 
 test("rejects mainnet contract IDs and non-HTTPS RPC endpoints", async () => {
