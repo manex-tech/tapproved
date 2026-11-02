@@ -65,6 +65,8 @@ jobs:
         run: pip install platformio==6.1.18
       - name: Test exact yoctoNEAR display formatting
         run: g++ -std=c++17 -Wall -Wextra -Werror -Ifirmware/include firmware/test/amount_format_test.cpp -o /tmp/tapproved-amount-format-test && /tmp/tapproved-amount-format-test
+      - name: Test fail-closed NVS key record policy
+        run: g++ -std=c++17 -Wall -Wextra -Werror -Ifirmware/include firmware/test/key_record_policy_test.cpp -o /tmp/tapproved-key-record-policy-test && /tmp/tapproved-key-record-policy-test
       - name: Test zeroizing firmware buffers
         run: g++ -std=c++17 -Wall -Wextra -Werror -Ifirmware/include firmware/test/zeroizing_buffer_test.cpp -o /tmp/tapproved-zeroizing-buffer-test && /tmp/tapproved-zeroizing-buffer-test
       - name: Test duplicate serial request guard
