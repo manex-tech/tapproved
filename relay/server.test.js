@@ -639,7 +639,7 @@ test("request logging never includes authorization credentials or query strings"
     error: (event, fields) => records.push({ event, fields })
   };
   await withServer({ ...authOptions(), logger }, async (base) => {
-    const response = await fetch(`${base}/health?token=do-not-log-this`);
+    const response = await fetch(`${base}/v1/payments/123?token=do-not-log-this`, { headers: { authorization: `Bearer ${token}` } });
     assert.equal(response.status, 200);
     await new Promise((resolve) => setImmediate(resolve));
     const serialized = JSON.stringify(records);
