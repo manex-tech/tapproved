@@ -95,8 +95,8 @@ CI runs Node syntax/tests, Rust contract tests plus a release Wasm build, and an
 - Only one payment may be active at a time.
 - Payment requests expire after five minutes. Expiry is permissionless but requires someone to call `expire_payment`; there is no automated expiry keeper yet.
 - Payment history is capped at 1,000 retained records. The oldest terminal records are pruned when a new record is inserted at capacity.
-- Daily usage is currently held in a vector and searched linearly. This data structure is not yet bounded or optimized for long-running deployments.
-- The daily reservation remains counted after successful payment as consumed daily capacity. Failed, expired and cancelled payments release their reservation.
+- Daily usage is keyed by UTC day and retains at most 90 day records. The view separates committed spend from outstanding reservations and reports used and remaining capacity; the daily limit applies to spent plus reserved.
+- Successful settlement moves the amount from reserved to spent. Failed, expired and cancelled payments release the reservation. Older daily records are pruned on a new request, but records with outstanding reservations are never discarded.
 - Spending limits are initialized at deployment; there are currently no owner methods to change the soft, hard or daily limits.
 - Firmware stores the Ed25519 seed in ordinary ESP32 NVS. Secure boot, flash encryption, debug-port hardening, authenticated device transport and a trusted display are not configured.
 - Serial output is not a trusted display. A compromised host or relay could misrepresent the payment details shown to the operator.
