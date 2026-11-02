@@ -3,6 +3,7 @@ const DEFAULT_CONTRACT_ID = "manextech.testnet";
 const DEFAULT_SIGNER_ACCOUNT_ID = "manex-agent.testnet";
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const TRANSACTION_WAIT_UNTIL = new Set(["NONE", "INCLUDED", "EXECUTED_OPTIMISTIC", "INCLUDED_FINAL", "EXECUTED", "FINAL"]);
+const TAPPROVED_METHODS = new Set(["request_spend", "execute_approved_spend", "approve_spend"]);
 
 function configuration(env = process.env) {
   const rpcUrl = env.NEAR_RPC_URL || DEFAULT_RPC_URL;
@@ -118,7 +119,7 @@ export async function getTransactionStatus(transactionHash, options = {}) {
     throw new TransactionQueryValidationError("invalid_wait_until", "invalid NEAR transaction wait_until value");
   }
 
-  const { rpcUrl, signerAccountId } = configuration(options.env);
+  const { rpcUrl, signerAccountId, contractId } = configuration(options.env);
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable");
   const response = await fetchImpl(rpcUrl, {
@@ -149,9 +150,14 @@ export async function getTransactionStatus(transactionHash, options = {}) {
     throw new Error(`NEAR RPC error: ${message}`);
   }
   const result = payload.result;
+  const methods = Array.isArray(result?.transaction?.actions)
+    ? result.transaction.actions.flatMap((action) => action?.FunctionCall?.method_name ? [action.FunctionCall.method_name] : [])
+    : [];
   if (!result || typeof result !== "object" ||
       result.transaction?.hash !== transactionHash ||
       result.transaction?.signer_id !== signerAccountId ||
+      result.transaction?.receiver_id !== contractId ||
+      methods.length !== 1 || !TAPPROVED_METHODS.has(methods[0]) ||
       !result.status) {
     throw new Error("NEAR RPC returned an invalid transaction status");
   }
