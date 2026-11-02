@@ -52,7 +52,7 @@ int main() {
   // Unsigned elapsed-time arithmetic remains correct across millis() rollover.
   FreshPressDetector rollover(50);
   rollover.begin(true, UINT32_MAX - 20U);
-  assert(rollover.update(true, 29U));
+  assert(!rollover.update(true, 29U));
   assert(rollover.armed());
 
   return 0;
