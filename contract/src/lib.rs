@@ -25,7 +25,7 @@ pub struct Tapproved {
     daily_usage: Vec<DailyUsage>,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(crate = "near_sdk::serde", rename_all = "snake_case")]
 pub enum PaymentStatus {
     Pending,
