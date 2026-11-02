@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last verified source revision:** `1b95c4ab0fa63638948ef46c7f5d9e310cca003a` (2026-11-02)  
+**Last verified source revision:** `ef67015a13230e25dfd529a154eb39e9466156c4` (2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -16,13 +16,13 @@
 - For each task, record implementation, tests, verification evidence and remaining limitations.
 - Distinguish complete, partially complete, blocked and not started work.
 - Do not claim a test passed without actual output or a successful CI result.
-- No deployment, initialization, transaction signing, payment, transfer, publishing, force-pushing, merging or hackathon submission without explicit approval for that action.
+- The user has authorized merging task PRs after source review and all required CI jobs pass. No deployment, initialization, on-chain transaction signing, payment, transfer, publishing, force-pushing or hackathon submission without explicit approval for that action.
 - Never deploy the current keyed 90-day daily-accounting storage layout over the existing `manextech.testnet` deployment. It requires a fresh account unless a separately designed and verified migration is implemented.
 - Keep testnet-only limitations explicit. Tapproved is not independently audited and is not production-ready.
 
 ## Current checkpoint
 
-**Active task: C2 secure agent authentication.**
+**Active task: C4 controlled NEAR agent signer integration.**
 
 The disposable B10 lab firmware branch was merged as PR #26, but the lab account is no longer the target architecture. Development is consolidated around the canonical Testnet contract `manextech.testnet` and registered agent `manex-agent.testnet`. Do not initialize, deploy over, or transfer funds from the canonical contract during implementation. The existing deployed contract's storage-layout compatibility must be assessed before any final redeployment decision.
 
@@ -30,7 +30,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 
 **C1 completed:** [Relay architecture and trust boundaries](RELAY-ARCHITECTURE.md) defines the agent, relay, signer, contract, serial bridge and ESP32 boundaries; API contract; secret configuration; lifecycle and failure invariants. This is a design baseline, not a claim that these components are implemented.
 
-`main` remains at `1b95c4ab0fa63638948ef46c7f5d9e310cca003a`; the current implementation branch is `feat/phase-c-relay-foundation`.
+`main` is at `ef67015a13230e25dfd529a154eb39e9466156c4`. PR #27 completed the bearer-token authentication foundation; PR #28 added durable idempotency; PR #29 added the authenticated payment-request API. The API remains fail-closed until C4 provides a verified restricted signer.
 
 ## Phase A: Repository consistency and documentation
 
@@ -55,7 +55,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 
 ### B10 safety requirements
 
-- Use only the disposable Testnet account `contract.tapproved-b10-lab.testnet` for this experiment, not `manextech.testnet`.
+- Do not create or use a disposable contract account. Perform empirical callback-gas validation only against the canonical `manextech.testnet` deployment after the final code and storage compatibility have been verified and the user explicitly approves the exact on-chain test.
 - Verify the exact Wasm SHA-256 and source commit before deployment.
 - Review initializer arguments, especially owner, agent, 32-byte device public key, soft/hard/daily limits, allowlist and network.
 - Check treasury balance and storage metrics before any test payment. Do not assume 1 NEAR is sufficient for all transfers and costs.
@@ -66,7 +66,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 ## Phase C: Relay and backend orchestration
 
 - [x] **C1.** Design relay/backend architecture and trust boundaries. Documented in [RELAY-ARCHITECTURE.md](RELAY-ARCHITECTURE.md); implementation boundaries and security invariants reviewed against current source.
-- [ ] **C2.** Implement secure agent authentication.
+- [x] **C2.** Implement secure agent authentication. Bearer-token validation uses constant-time comparison; `POST /v1/payment-requests` enforces authentication, strict JSON and a bounded body. Merged in PRs #27 and #29.
 - [ ] **C3.** Submit agent spending requests.
 - [ ] **C4.** Submit contract transactions through a controlled signer flow.
 - [ ] **C5.** Execute automatically approved payments.
@@ -78,7 +78,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 - [ ] **C11.** Handle interruption and failure recovery.
 - [ ] **C12.** Implement structured logs and error handling.
 - [ ] **C13.** Add automated integration tests.
-- [ ] Implement application-level request idempotency keys so transport retries do not create duplicate logical payments.
+- [x] Implement application-level request idempotency keys so transport retries do not create duplicate logical payments. PR #28 provides a durable single-process journal with restart persistence, conflict detection and fail-closed uncertain states; multi-instance deployments still require a shared transactional store.
 
 ## Phase D: Hardware security and firmware
 
@@ -177,4 +177,6 @@ Update this section after each task with the date, commit/PR, tests run, evidenc
 | Date | Task | Result / evidence |
 |---|---|---|
 | 2026-11-02 | B10 implementation and B12 CI verification | PR #24 merged as `67884ca12b799a029d52f60e445600916dd29cce`; CI run [41430358558](https://github.com/manex-tech/tapproved/actions/runs/41430358558), 75 Rust tests passed; empirical Testnet callback-gas measurement deferred to final deployment validation. |
-| 2026-11-02 | C1 relay architecture | Added `docs/RELAY-ARCHITECTURE.md` on `feat/phase-c-relay-foundation`; design reviewed against current relay, contract, protocol and firmware source. No runtime code or on-chain state changed. |
+| 2026-11-02 | C1 relay architecture | Added `docs/RELAY-ARCHITECTURE.md`; design reviewed against current relay, contract, protocol and firmware source. |
+| 2026-11-02 | C2 agent authentication | PR #27 merged as `cb13b5b1096c79caa8076c72e29a443b962e9f38`; CI run [41461878608](https://github.com/manex-tech/tapproved/actions/runs/41461878608) passed. PR #29 merged as `ef67015a13230e25dfd529a154eb39e9466156c4`; CI run [41464289588](https://github.com/manex-tech/tapproved/actions/runs/41464289588) passed Node, contract and firmware jobs. |
+| 2026-11-02 | C3 idempotency foundation | PR #28 merged as `7500f6a965c06ede443551d2a2d67f5904f260f2`; CI run [41463199393](https://github.com/manex-tech/tapproved/actions/runs/41463199393) passed Node tests, 75 Rust contract tests, Wasm build and ESP32 build. API is protected but remains disabled until C4 signer integration. |
