@@ -1,4 +1,4 @@
-import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy } from "./near-rpc.js";
+import { getActivePayment, getPayment, getPolicy } from "./near-rpc.js";
 import { CANONICAL_AGENT_ID } from "./near-signer.js";
 import { buildDeviceApprovalFrame, SerialBridgeError } from "./serial.js";
 import { verifyApprovalSignature } from "./protocol.js";
@@ -88,7 +88,12 @@ export function createHardwareApprovalService(options = {}) {
       throw new HardwareApprovalError(409, "payment_not_pending");
     }
 
-    const frame = buildDeviceApprovalFrame(activePayment);
+    let frame;
+    try {
+      frame = buildDeviceApprovalFrame(activePayment);
+    } catch (error) {
+      throw new HardwareApprovalError(502, error?.code ?? "invalid_payment_context");
+    }
     const expectedPublicKey = devicePublicKeyHex(policy);
     let deviceResponse;
     try {
@@ -140,4 +145,3 @@ export function createHardwareApprovalService(options = {}) {
   return Object.freeze({ approvePayment });
 }
 
-export { DEFAULT_CONTRACT_ID };
