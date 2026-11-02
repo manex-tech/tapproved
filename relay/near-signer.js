@@ -7,6 +7,7 @@ export const CANONICAL_NETWORK = "testnet";
 export const CANONICAL_CONTRACT_ID = "manextech.testnet";
 export const CANONICAL_AGENT_ID = "manex-agent.testnet";
 export const REQUEST_SPEND_METHODS = Object.freeze(["request_spend", "execute_approved_spend"]);
+export const REQUEST_EXPIRY_METHODS = Object.freeze(["request_spend", "execute_approved_spend", "expire_payment"]);
 export const APPROVE_SPEND_METHODS = Object.freeze(["approve_spend"]);
 export const MAX_SIGNER_ALLOWANCE_YOCTO = 5n * 10n ** 24n;
 
@@ -70,10 +71,15 @@ export function validateAgentFunctionCallKey(
     throw new SignerConfigurationError("agent signer key is scoped to a different contract");
   }
   const methodNames = functionCall.method_names;
-  if (!Array.isArray(methodNames) ||
-      methodNames.length !== allowedMethods.length ||
-      methodNames.some((method, index) => method !== allowedMethods[index])) {
-    throw new SignerConfigurationError(`agent signer key must be restricted to ${allowedMethods.join(" and ")} only`);
+  const allowedMethodSets = Array.isArray(allowedMethods[0]) ? allowedMethods : [allowedMethods];
+  const exactMethodSet = allowedMethodSets.some((expected) =>
+    Array.isArray(methodNames) &&
+    methodNames.length === expected.length &&
+    methodNames.every((method, index) => method === expected[index])
+  );
+  if (!exactMethodSet) {
+    const allowedDescription = allowedMethodSets.map((methods) => methods.join(" and ")).join(" or ");
+    throw new SignerConfigurationError(`agent signer key must be restricted to ${allowedDescription} only`);
   }
   if (functionCall.allowance === null || functionCall.allowance === undefined) {
     throw new SignerConfigurationError("agent signer key must have a finite gas allowance");
@@ -150,7 +156,12 @@ export async function createNearAgentSigner(options = {}) {
     throw new SignerConfigurationError("could not verify agent signer access-key permissions");
   }
   const publicKey = keyPair.getPublicKey().toString();
-  const verifiedKey = validateAgentFunctionCallKey(accessKeyList, publicKey, config.contractId);
+  const verifiedKey = validateAgentFunctionCallKey(
+    accessKeyList,
+    publicKey,
+    config.contractId,
+    [REQUEST_SPEND_METHODS, REQUEST_EXPIRY_METHODS]
+  );
 
   async function requestSpend(input) {
     const payment = validatePaymentRequest(input);
@@ -204,8 +215,39 @@ export async function createNearAgentSigner(options = {}) {
     };
   }
 
+  async function expirePayment(paymentId) {
+    if (!verifiedKey.method_names.includes("expire_payment")) {
+      throw new SignerConfigurationError("NEAR_SIGNER_PRIVATE_KEY must include expire_payment to enable the expiry monitor");
+    }
+    if (typeof paymentId !== "string" || !/^[1-9][0-9]*$/.test(paymentId) ||
+        BigInt(paymentId) > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new TypeError("payment ID must be a positive safe decimal string");
+    }
+    const outcome = await account.callFunctionRaw({
+      contractId: config.contractId,
+      methodName: "expire_payment",
+      args: { payment_id: Number(BigInt(paymentId)) },
+      gas: sdk.teraToGas("30"),
+      deposit: 0n,
+      waitUntil: "FINAL"
+    });
+    const transactionHash = outcome?.transaction_outcome?.id ?? outcome?.transaction?.hash;
+    if (typeof transactionHash !== "string" || transactionHash.length === 0) {
+      throw new Error("NEAR expire_payment did not return a transaction hash");
+    }
+    const payment = await (options.getPayment ?? getPayment)(
+      paymentId,
+      { env, fetchImpl: options.fetchImpl }
+    );
+    if (!payment || payment.id !== paymentId || payment.status !== "expired") {
+      throw new Error("NEAR expire_payment did not confirm the payment is expired");
+    }
+    return { transaction_hash: transactionHash, payment };
+  }
+
   return Object.freeze({
     requestSpend,
+    expirePayment,
     signerAccountId: config.agentId,
     contractId: config.contractId,
     networkId: config.networkId,
