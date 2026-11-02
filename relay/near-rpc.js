@@ -3,7 +3,7 @@ const DEFAULT_CONTRACT_ID = "manextech.testnet";
 const DEFAULT_SIGNER_ACCOUNT_ID = "manex-agent.testnet";
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const TRANSACTION_WAIT_UNTIL = new Set(["NONE", "INCLUDED", "EXECUTED_OPTIMISTIC", "INCLUDED_FINAL", "EXECUTED", "FINAL"]);
-const TAPPROVED_METHODS = new Set(["request_spend", "execute_approved_spend", "approve_spend"]);
+const TAPPROVED_METHODS = new Set(["request_spend", "execute_approved_spend", "approve_spend", "expire_payment"]);
 
 function configuration(env = process.env) {
   const rpcUrl = env.NEAR_RPC_URL || DEFAULT_RPC_URL;
