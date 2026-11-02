@@ -5,7 +5,8 @@ import { encodeApprovalMessage } from "./protocol.js";
 import {
   CANONICAL_AGENT_ID,
   CANONICAL_CONTRACT_ID,
-  APPROVE_SPEND_METHODS,\n  EXPIRE_PAYMENT_METHODS,
+  APPROVE_SPEND_METHODS,
+  EXPIRE_PAYMENT_METHODS,
   MAX_SIGNER_ALLOWANCE_YOCTO,
   SignerConfigurationError,
   createNearAgentSigner,
