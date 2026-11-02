@@ -37,15 +37,15 @@ int main() {
     assert(nvs_record[i] == generated_seed[i]);
   }
 
-  // Power loss during a torn write leaves a present, short record. It must
-  // fail closed rather than silently generate and register a different key.
+  // If an interrupted write leaves a present, short record, it must fail
+  // closed rather than silently generate and register a different key.
   nvs_record.assign(generated_seed.begin(), generated_seed.begin() + 13);
   assert(decideKeyRecordAction(true, nvs_record.size(), seed_length) ==
          KeyRecordAction::RejectMalformed);
   assert(nvs_record.size() == 13);
 
-  // Power loss before any key record is committed leaves no established
-  // identity, so a later boot may perform first-boot generation.
+  // An absent record is treated as first boot. This is also indistinguishable
+  // from a fully erased NVS record and can produce a new, unregistered key.
   nvs_record.clear();
   key_exists = false;
   assert(decideKeyRecordAction(key_exists, nvs_record.size(), seed_length) ==
