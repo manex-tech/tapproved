@@ -69,6 +69,7 @@ function recordId(agentId, key) {
 export class JsonIdempotencyStore {
   #filePath;
   #records = new Map();
+  #operations = new Map();
   #loaded = false;
   #tail = Promise.resolve();
 
@@ -106,7 +107,8 @@ export class JsonIdempotencyStore {
     let parsed;
     try {
       parsed = JSON.parse(raw);
-      if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.records)) {
+      if (!parsed || ![1, 2].includes(parsed.version) || !Array.isArray(parsed.records) ||
+          (parsed.version === 2 && !Array.isArray(parsed.operations))) {
         throw new Error("invalid journal schema");
       }
       for (const record of parsed.records) {
@@ -118,6 +120,18 @@ export class JsonIdempotencyStore {
           throw new Error("invalid journal record");
         }
         this.#records.set(record.id, record);
+      }
+      for (const operation of parsed.operations ?? []) {
+        if (!operation || typeof operation.id !== "string" ||
+            typeof operation.agent_id !== "string" ||
+            typeof operation.payment_id !== "string" || !/^[0-9]+$/.test(operation.payment_id) ||
+            !["approval", "expiry"].includes(operation.kind) ||
+            !["submitting", "submitted", "uncertain", "confirmed"].includes(operation.state) ||
+            (operation.transaction_hash !== null &&
+              (typeof operation.transaction_hash !== "string" || operation.transaction_hash.length === 0 || operation.transaction_hash.length > 128))) {
+          throw new Error("invalid payment operation record");
+        }
+        this.#operations.set(operation.id, operation);
       }
     } catch {
       throw new IdempotencyStoreError("idempotency journal is corrupt; refusing payment submissions");
@@ -132,8 +146,9 @@ export class JsonIdempotencyStore {
     const handle = await open(temporary, "wx", 0o600);
     try {
       await handle.writeFile(JSON.stringify({
-        version: 1,
-        records: [...this.#records.values()]
+        version: 2,
+        records: [...this.#records.values()],
+        operations: [...this.#operations.values()]
       }) + "\n", "utf8");
       await handle.sync();
     } finally {
@@ -195,6 +210,154 @@ export class JsonIdempotencyStore {
       record.result = result;
       await this.#persist();
       return structuredClone(record);
+    });
+  }
+
+
+  async listUnresolvedPaymentRequests(agentId) {
+    return this.#exclusive(async () => {
+      await this.#load();
+      return [...this.#records.values()]
+        .filter((record) => record.agent_id === agentId &&
+          ["reserved", "submitting", "uncertain"].includes(record.state))
+        .map((record) => structuredClone(record));
+    });
+  }
+
+  async reconcileSubmitted(agentId, idempotencyKey, payment) {
+    return this.#exclusive(async () => {
+      await this.#load();
+      const record = this.#records.get(recordId(agentId, idempotencyKey));
+      if (!record) throw new IdempotencyStoreError("idempotency reservation does not exist");
+      if (record.state === "submitted") return structuredClone(record);
+      if (!["reserved", "submitting", "uncertain"].includes(record.state)) {
+        throw new IdempotencyStoreError("payment request is not recoverable");
+      }
+      if (!payment || typeof payment !== "object" ||
+          payment.agent_id !== agentId ||
+          typeof payment.id !== "string" || !/^[0-9]+$/.test(payment.id) ||
+          BigInt(payment.id) > BigInt(Number.MAX_SAFE_INTEGER) ||
+          payment.recipient_id !== record.payment?.recipient_id ||
+          payment.amount_yocto !== record.payment?.amount_yocto ||
+          !["pending", "approved", "processing", "paid", "failed", "expired", "cancelled"].includes(payment.status)) {
+        throw new IdempotencyStoreError("contract payment does not match the unresolved request");
+      }
+      record.state = "submitted";
+      record.updated_at = new Date().toISOString();
+      record.result = {
+        transaction_hash: null,
+        execution_transaction_hash: null,
+        payment: structuredClone(payment),
+        recovered: true
+      };
+      await this.#persist();
+      return structuredClone(record);
+    });
+  }
+
+  async beginOperation(agentId, paymentId, kind) {
+    if (typeof agentId !== "string" || !ACCOUNT_ID.test(agentId) ||
+        typeof paymentId !== "string" || !/^[0-9]+$/.test(paymentId) ||
+        BigInt(paymentId) > BigInt(Number.MAX_SAFE_INTEGER) ||
+        !["approval", "expiry"].includes(kind)) {
+      throw new TypeError("invalid payment operation");
+    }
+    return this.#exclusive(async () => {
+      await this.#load();
+      const id = `${agentId}:${paymentId}:${kind}`;
+      const existing = this.#operations.get(id);
+      if (existing) return { created: false, operation: structuredClone(existing) };
+      const now = new Date().toISOString();
+      const operation = {
+        id,
+        agent_id: agentId,
+        payment_id: paymentId,
+        kind,
+        state: "submitting",
+        transaction_hash: null,
+        observed_status: null,
+        created_at: now,
+        updated_at: now
+      };
+      this.#operations.set(id, operation);
+      await this.#persist();
+      return { created: true, operation: structuredClone(operation) };
+    });
+  }
+
+  async completeOperation(agentId, paymentId, kind, transactionHash) {
+    if (typeof transactionHash !== "string" || transactionHash.length === 0 || transactionHash.length > 128) {
+      throw new TypeError("transaction hash is invalid");
+    }
+    return this.#exclusive(async () => {
+      await this.#load();
+      const id = `${agentId}:${paymentId}:${kind}`;
+      const operation = this.#operations.get(id);
+      if (!operation) throw new IdempotencyStoreError("payment operation does not exist");
+      if (operation.transaction_hash && operation.transaction_hash !== transactionHash) {
+        throw new IdempotencyStoreError("payment operation transaction hash conflicts");
+      }
+      if (operation.state === "confirmed" || operation.state === "submitted") {
+        return structuredClone(operation);
+      }
+      operation.state = "submitted";
+      operation.transaction_hash = transactionHash;
+      operation.updated_at = new Date().toISOString();
+      await this.#persist();
+      return structuredClone(operation);
+    });
+  }
+
+  async markOperationUncertain(agentId, paymentId, kind) {
+    return this.#exclusive(async () => {
+      await this.#load();
+      const operation = this.#operations.get(`${agentId}:${paymentId}:${kind}`);
+      if (!operation) throw new IdempotencyStoreError("payment operation does not exist");
+      if (operation.state === "submitting") {
+        operation.state = "uncertain";
+        operation.updated_at = new Date().toISOString();
+        await this.#persist();
+      }
+      return structuredClone(operation);
+    });
+  }
+
+  async confirmOperation(agentId, paymentId, kind, observedStatus) {
+    const expected = kind === "expiry"
+      ? ["expired"]
+      : kind === "approval"
+        ? ["processing", "paid", "failed"]
+        : [];
+    if (!expected.includes(observedStatus)) {
+      throw new TypeError("observed contract status does not confirm this operation");
+    }
+    return this.#exclusive(async () => {
+      await this.#load();
+      const operation = this.#operations.get(`${agentId}:${paymentId}:${kind}`);
+      if (!operation) throw new IdempotencyStoreError("payment operation does not exist");
+      operation.state = "confirmed";
+      operation.observed_status = observedStatus;
+      operation.updated_at = new Date().toISOString();
+      await this.#persist();
+      return structuredClone(operation);
+    });
+  }
+
+  async getOperation(agentId, paymentId, kind) {
+    return this.#exclusive(async () => {
+      await this.#load();
+      const operation = this.#operations.get(`${agentId}:${paymentId}:${kind}`);
+      return operation ? structuredClone(operation) : null;
+    });
+  }
+
+  async listUnresolvedOperations(agentId) {
+    return this.#exclusive(async () => {
+      await this.#load();
+      return [...this.#operations.values()]
+        .filter((operation) => operation.agent_id === agentId &&
+          ["submitting", "submitted", "uncertain"].includes(operation.state))
+        .map((operation) => structuredClone(operation));
     });
   }
 
