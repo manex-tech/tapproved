@@ -44,6 +44,15 @@ int main() {
          KeyRecordAction::RejectMalformed);
   assert(nvs_record.size() == 13);
 
+  // Exercise every possible truncated record length after an interrupted
+  // persistence operation. Any present record shorter than 32 bytes must
+  // fail closed; it must never be treated as a fresh identity.
+  for (size_t partial_length = 0; partial_length < seed_length; ++partial_length) {
+    nvs_record.assign(generated_seed.begin(), generated_seed.begin() + partial_length);
+    assert(decideKeyRecordAction(true, nvs_record.size(), seed_length) ==
+           KeyRecordAction::RejectMalformed);
+  }
+
   // An absent record is treated as first boot. This is also indistinguishable
   // from a fully erased NVS record and can produce a new, unregistered key.
   nvs_record.clear();
