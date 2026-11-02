@@ -15,11 +15,15 @@ constexpr char NVS_SEED_KEY[] = "ed25519_seed";
 constexpr char CONFIGURED_CONTRACT_ID[] = TAPPROVED_CONTRACT_ID;
 constexpr char CONFIGURED_NETWORK_ID[] = "testnet";
 constexpr size_t MAX_MESSAGE_SIZE = 512;
+constexpr size_t MAX_SERIAL_LINE_BYTES = 2048;
 
 Preferences preferences;
 uint8_t private_seed[32];
 uint8_t public_key[32];
 bool key_ready = false;
+char serial_line[MAX_SERIAL_LINE_BYTES + 1];
+size_t serial_line_length = 0;
+bool serial_line_overflow = false;
 
 bool parseU64(const char* text, uint64_t& out) {
   if (!text || !*text) return false;
@@ -123,7 +127,7 @@ void printHex(const uint8_t* bytes, size_t length) {
   }
 }
 
-void handleRequest(const String& line) {
+void handleRequest(const char* line) {
   JsonDocument doc;
   if (deserializeJson(doc, line)) {
     Serial.println("{\"error\":\"invalid_json\"}");
@@ -189,8 +193,28 @@ void setup() {
 }
 
 void loop() {
-  if (!key_ready || !Serial.available()) { delay(10); return; }
-  String line = Serial.readStringUntil('\n');
-  line.trim();
-  if (line.length() > 0) handleRequest(line);
+  if (!key_ready) { delay(10); return; }
+  while (Serial.available() > 0) {
+    const int incoming = Serial.read();
+    if (incoming < 0) break;
+    if (incoming == '\r') continue;
+    if (incoming == '\n') {
+      if (serial_line_overflow) {
+        Serial.println("{\"error\":\"frame_too_large\"}");
+      } else if (serial_line_length > 0) {
+        serial_line[serial_line_length] = '\0';
+        handleRequest(serial_line);
+      }
+      serial_line_length = 0;
+      serial_line_overflow = false;
+      continue;
+    }
+    if (serial_line_overflow) continue;
+    if (serial_line_length >= MAX_SERIAL_LINE_BYTES) {
+      serial_line_overflow = true;
+      continue;
+    }
+    serial_line[serial_line_length++] = static_cast<char>(incoming);
+  }
+  delay(10);
 }
