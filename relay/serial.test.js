@@ -74,6 +74,8 @@ test("builds the exact canonical device frame from a pending contract payment", 
     request_id: requestId,
     contract_id: "manextech.testnet",
     network_id: "testnet",
+    agent_id: "manex-agent.testnet",
+    status: "pending",
     payment_id: "15",
     recipient_id: "merchant.testnet",
     amount_yocto: "1000000000000000000000",
@@ -89,6 +91,12 @@ test("refuses non-pending, wrong-agent and malformed payment contexts", () => {
   assert.throws(() => buildDeviceApprovalFrame({ ...payment, agent_id: "other.testnet" }, "123e4567-e89b-42d3-a456-426614174000"), /unexpected_agent/);
   assert.throws(() => buildDeviceApprovalFrame({ ...payment, amount_yocto: 1 }, "123e4567-e89b-42d3-a456-426614174000"), /amount_yocto/);
   assert.throws(() => buildDeviceApprovalFrame({ ...payment, expires_at_ns: "0" }, "123e4567-e89b-42d3-a456-426614174000"), /expires_at_ns/);
+  assert.throws(() => buildDeviceApprovalFrame({ ...payment, recipient_id: "a" }, "123e4567-e89b-42d3-a456-426614174000"), /recipient_id/);
+  assert.throws(() => buildDeviceApprovalFrame({ ...payment, id: "015" }, "123e4567-e89b-42d3-a456-426614174000"), /canonical decimal/);
+  assert.throws(() => buildDeviceApprovalFrame({ ...payment, nonce: "01" }, "123e4567-e89b-42d3-a456-426614174000"), /canonical decimal/);
+  assert.throws(() => buildDeviceApprovalFrame({ ...payment, amount_yocto: "0" }, "123e4567-e89b-42d3-a456-426614174000"), /greater than zero/);
+  assert.throws(() => buildDeviceApprovalFrame({ ...payment, id: "18446744073709551616" }, "123e4567-e89b-42d3-a456-426614174000"), /integer range/);
+  assert.throws(() => buildDeviceApprovalFrame({ ...payment, amount_yocto: "340282366920938463463374607431768211456" }, "123e4567-e89b-42d3-a456-426614174000"), /integer range/);
 });
 
 test("opens the configured serial port and handles fragmented signed JSON after text output", async () => {
