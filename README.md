@@ -32,10 +32,10 @@ The contract is the policy authority. The relay authenticates agent requests, pe
 | Testnet deployment | User-confirmed deployed and tested using NEAR CLI; see [deployment status](docs/TESTNET-DEPLOYMENT.md) |
 | ESP32 approval firmware | Implemented prototype; PlatformIO build in CI |
 | Approval protocol v1 | Documented with deterministic fixture |
-| Relay | Authenticated payment-request API, persistent idempotency journal and restricted signer for `request_spend` plus auto-approved `execute_approved_spend`; hardware approval and lifecycle tracking remain incomplete |
+| Relay | Authenticated payment-request API, persistent idempotency journal, restricted signer, pending-approval polling and a bounded USB serial bridge module; hardware signature submission and lifecycle tracking remain incomplete |
 | Local simulator | Implemented; uses an ephemeral key not registered on-chain |
 | Agent transaction orchestration | `request_spend` and automatic `execute_approved_spend` submission implemented; recovery remains incomplete |
-| Serial relay-to-device bridge | Not implemented |
+| Serial relay-to-device bridge | Bounded newline-delimited USB serial transport and firmware frame parser implemented; service orchestration and signature submission remain in progress |
 | Dashboard | Not implemented |
 | Independent security audit | Not performed |
 
@@ -45,7 +45,7 @@ The first recorded hardware-gated testnet payment is documented in [the hardware
 
 - **Contract:** `contract/src/lib.rs` owns policy, payment state, reservations, signature verification, transfer promises and callbacks.
 - **Firmware:** `firmware/src/main.cpp` validates the configured contract/network, reconstructs the v1 message, waits for a physical button press and signs with the device Ed25519 key.
-- **Relay:** `relay/server.js` exposes health/read views, authenticated `POST /v1/payment-requests` and `GET /v1/pending-approvals` for the active contract-pending payment; `relay/payment-requests.js` validates requests and persists idempotency; `relay/near-signer.js` verifies and uses a narrowly scoped agent FunctionCall key. `relay/near-rpc.js` queries NEAR views.
+- **Relay:** `relay/server.js` exposes health/read views, authenticated `POST /v1/payment-requests` and `GET /v1/pending-approvals` for the active contract-pending payment; `relay/payment-requests.js` validates requests and persists idempotency; `relay/near-signer.js` verifies and uses a narrowly scoped agent FunctionCall key. `relay/near-rpc.js` queries NEAR views; `relay/serial.js` provides one-at-a-time, bounded USB serial approval transport.
 - **Protocol:** `docs/APPROVAL-PROTOCOL.md` defines the exact signed byte sequence. `protocol/v1-vector.json` is a deterministic interoperability fixture.
 - **Simulator:** `relay/simulator.js` locally demonstrates encoding and signing with a temporary keypair. It cannot authorize an on-chain payment.
 
@@ -97,7 +97,7 @@ Run the local-only simulator:
 npm run simulate
 ```
 
-CI runs Node syntax/tests, Rust contract tests plus a release Wasm build, and an ESP32 PlatformIO build.
+CI runs Node syntax/tests, Rust contract tests plus a release Wasm build, and the canonical ESP32 PlatformIO build only.
 
 ## Key policy and limitations
 
