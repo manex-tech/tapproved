@@ -240,7 +240,7 @@ test("automatically executes an approved payment and reads its final contract st
       Account: MockAccount,
       JsonRpcProvider: MockProvider,
       KeyPair: { fromString: () => ({ getPublicKey: () => ({ toString: () => publicKey }) }) },
-      teraToGas: () => 30_000_000_000_000n
+      teraToGas: (value) => value === "60" ? 60_000_000_000_000n : 30_000_000_000_000n
     },
     getPayment: async (id, options) => {
       assert.equal(id, "43");
@@ -265,6 +265,8 @@ test("automatically executes an approved payment and reads its final contract st
   assert.equal(calls.length, 2);
   assert.equal(calls[0].methodName, "request_spend");
   assert.equal(calls[1].methodName, "execute_approved_spend");
+  assert.equal(calls[0].gas, 30_000_000_000_000n);
+  assert.equal(calls[1].gas, 60_000_000_000_000n);
   assert.equal(calls[1].deposit, 0n);
   assert.equal(result.transaction_hash, "request-transaction-hash");
   assert.equal(result.execution_transaction_hash, "execution-transaction-hash");
@@ -326,7 +328,10 @@ test("submits a hardware approval as 64 signature bytes and confirms contract st
       Account: MockAccount,
       JsonRpcProvider: MockProvider,
       KeyPair: { fromString: () => ({ getPublicKey: () => ({ toString: () => publicKey }) }) },
-      teraToGas: () => 30_000_000_000_000n
+      teraToGas(value) {
+        assert.equal(value, "60");
+        return 60_000_000_000_000n;
+      }
     },
     getPayment: async (id, options) => {
       assert.equal(id, "45");
@@ -349,7 +354,7 @@ test("submits a hardware approval as 64 signature bytes and confirms contract st
     payment_id: 45,
     signature: Array.from(Buffer.from(signatureHex, "hex"))
   });
-  assert.equal(captured.gas, 30_000_000_000_000n);
+  assert.equal(captured.gas, 60_000_000_000_000n);
   assert.equal(captured.deposit, 0n);
   assert.equal(captured.waitUntil, "FINAL");
   assert.equal(result.transaction_hash, "hardware-approval-transaction");
