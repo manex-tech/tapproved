@@ -115,6 +115,7 @@ CI runs Node syntax/tests, Rust contract tests plus a release Wasm build, and an
 - The contract account is the treasury: transfers are made from the contract's NEAR balance, not from the agent's own wallet.
 - Only one payment may be active at a time.
 - Payment requests expire after five minutes. `expire_payment` is permissionless, and a subsequent valid request automatically expires a stale pending/approved payment. Processing payments cannot be auto-expired.
+- The relay attaches 30 TGas to `request_spend` and 60 TGas to settlement calls so the contract can execute and schedule its 30 TGas callback. Actual callback gas burnt still requires the controlled B10 Testnet receipt measurement.
 - Payment history is capped at 1,000 retained records. The oldest terminal records are pruned when a new record is inserted at capacity.
 - Daily usage is keyed by UTC day and retains at most 90 day records. The view separates committed spend from outstanding reservations and reports used and remaining capacity; the daily limit applies to spent plus reserved.
 - Successful settlement moves the amount from reserved to spent. Failed, expired and cancelled payments release the reservation. Older daily records are pruned on a new request, but records with outstanding reservations are never discarded.
