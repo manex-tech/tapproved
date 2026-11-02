@@ -1,22 +1,23 @@
 const DEFAULT_RPC_URL = "https://rpc.testnet.near.org";
 const DEFAULT_CONTRACT_ID = "manextech.testnet";
+const DEFAULT_NETWORK_ID = "testnet";
 const DEFAULT_SIGNER_ACCOUNT_ID = "manex-agent.testnet";
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const TRANSACTION_WAIT_UNTIL = new Set(["NONE", "INCLUDED", "EXECUTED_OPTIMISTIC", "INCLUDED_FINAL", "EXECUTED", "FINAL"]);
 const TAPPROVED_METHODS = new Set(["request_spend", "execute_approved_spend", "approve_spend", "expire_payment"]);
 
 function configuration(env = process.env) {
+  const networkId = env.NEAR_NETWORK || DEFAULT_NETWORK_ID;
   const rpcUrl = env.NEAR_RPC_URL || DEFAULT_RPC_URL;
   const contractId = env.NEAR_CONTRACT_ID || DEFAULT_CONTRACT_ID;
   const signerAccountId = env.NEAR_SIGNER_ACCOUNT_ID || DEFAULT_SIGNER_ACCOUNT_ID;
-  if (!rpcUrl.startsWith("https://")) throw new Error("NEAR_RPC_URL must use HTTPS");
-  if (!/^[a-z0-9._-]+$/.test(contractId) || !contractId.endsWith(".testnet")) {
-    throw new Error("NEAR_CONTRACT_ID must be a valid testnet account ID");
-  }
+  if (networkId !== DEFAULT_NETWORK_ID) throw new Error("NEAR_NETWORK must be testnet");
+  if (contractId !== DEFAULT_CONTRACT_ID) throw new Error("NEAR_CONTRACT_ID must be manextech.testnet");
   if (signerAccountId !== DEFAULT_SIGNER_ACCOUNT_ID) {
     throw new Error("NEAR_SIGNER_ACCOUNT_ID must be manex-agent.testnet");
   }
-  return { rpcUrl, contractId, signerAccountId };
+  if (typeof rpcUrl !== "string" || !rpcUrl.startsWith("https://")) throw new Error("NEAR_RPC_URL must use HTTPS");
+  return { networkId, rpcUrl, contractId, signerAccountId };
 }
 
 export async function callViewMethod(methodName, args = {}, options = {}) {
@@ -173,7 +174,7 @@ export async function getTransactionStatus(transactionHash, options = {}) {
 
 export { DEFAULT_RPC_URL, DEFAULT_CONTRACT_ID };
 
-
+ 
 /**
  * Read the timestamp of the latest finalized NEAR block. Expiry decisions
  * must use chain time rather than the relay host clock.

@@ -12,7 +12,7 @@ The only supported firmware environment targets the canonical NEAR Testnet deplo
 - Serial baud rate: 115200
 - Serial framing: newline-delimited JSON, maximum input frame 2,048 bytes
 
-The contract ID and network ID are compile-time constants in `src/main.cpp`. If the canonical deployment changes, update those constants, rebuild and flash the firmware, then verify the device signs the exact contract and network values used by the relay and contract.
+The contract ID (`manextech.testnet`) and network ID (`testnet`) are fixed compile-time constants in `src/main.cpp`; the contract ID is not exposed as a build-flag override. If the canonical deployment changes, update the source constants deliberately, rebuild and flash the firmware, then verify the device signs the exact contract and network values used by the relay and contract.
 
 ## Build and flash
 

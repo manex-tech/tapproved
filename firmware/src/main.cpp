@@ -9,10 +9,7 @@ namespace {
 constexpr uint8_t APPROVAL_BUTTON_PIN = 25;
 constexpr char NVS_NAMESPACE[] = "tapproved";
 constexpr char NVS_SEED_KEY[] = "ed25519_seed";
-#ifndef TAPPROVED_CONTRACT_ID
-#define TAPPROVED_CONTRACT_ID "manextech.testnet"
-#endif
-constexpr char CONFIGURED_CONTRACT_ID[] = TAPPROVED_CONTRACT_ID;
+constexpr char CONFIGURED_CONTRACT_ID[] = "manextech.testnet";
 constexpr char CONFIGURED_NETWORK_ID[] = "testnet";
 constexpr size_t MAX_MESSAGE_SIZE = 512;
 constexpr size_t MAX_SERIAL_LINE_BYTES = 2048;
