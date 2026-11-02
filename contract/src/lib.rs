@@ -377,7 +377,7 @@ impl Tapproved {
             env::panic_str("daily reservation record missing");
         }
         self.store_payment(Payment { status: PaymentStatus::Expired, ..payment.clone() });
-        emit_payment_event("payment_expired", payment, None);
+        emit_payment_event("payment_expired", &payment, None);
         self.active_payment_id = None;
     }
 
