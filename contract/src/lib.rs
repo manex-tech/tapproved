@@ -850,6 +850,21 @@ mod tests {
     }
 
     #[test]
+    fn multiple_successful_payments_accumulate_spent_usage_within_one_day() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let first = c.request_spend(account("merchant.testnet"), U128(40));
+        resolve_transfer(&mut c, first.id.0, FIXTURE_NOW, PromiseResult::Successful(vec![]));
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let second = c.request_spend(account("merchant.testnet"), U128(50));
+        resolve_transfer(&mut c, second.id.0, FIXTURE_NOW, PromiseResult::Successful(vec![]));
+        let usage = c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY);
+        assert_eq!(usage.spent_yocto.0, 90);
+        assert_eq!(usage.reserved_yocto.0, 0);
+        assert_eq!(usage.total_yocto.0, 90);
+    }
+
+    #[test]
     fn transfer_callback_success_marks_payment_paid() {
         use near_sdk::test_utils::testing_env_with_promise_results;
         use near_sdk::test_utils::VMContextBuilder;
@@ -938,6 +953,15 @@ mod tests {
         }
         context_at("agent.testnet", "tapproved.testnet", current_day * NANOS_PER_DAY);
         c.request_spend(account("merchant.testnet"), U128(5));
+    }
+
+    #[test]
+    #[should_panic(expected = "payment is not active")]
+    fn expired_payment_reservation_cannot_be_released_twice() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        context_at("caller.testnet", "tapproved.testnet", FIXTURE_EXPIRY + 1);
+        c.expire_payment(42);
+        c.expire_payment(42);
     }
 
     #[test]
