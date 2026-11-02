@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { getActivePayment, getPolicy } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
+import { createNearAgentSigner } from "./near-signer.js";
 import {
   IdempotencyConflictError,
   IdempotencyStoreError,
@@ -185,12 +186,29 @@ export function createRelayServer(options = {}) {
 const isMain = process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href;
 
-if (isMain) {
+async function startRelay() {
   const port = Number(process.env.PORT ?? 3000);
   const storePath = process.env.TAPPROVED_IDEMPOTENCY_PATH ?? ".tapproved/idempotency.json";
   const idempotencyStore = new JsonIdempotencyStore(storePath);
-  const server = createRelayServer({ idempotencyStore });
+  let submitPayment;
+
+  try {
+    const signer = await createNearAgentSigner();
+    submitPayment = signer.requestSpend;
+    console.log("Restricted NEAR agent signer verified for manex-agent.testnet.");
+  } catch (error) {
+    console.error(`NEAR agent signer unavailable; payment submissions disabled: ${error.message}`);
+  }
+
+  const server = createRelayServer({ idempotencyStore, submitPayment });
   server.listen(port, () => {
     console.log(`Tapproved testnet relay listening on port ${port}`);
+  });
+}
+
+if (isMain) {
+  startRelay().catch((error) => {
+    console.error(`Tapproved relay startup failed: ${error.message}`);
+    process.exitCode = 1;
   });
 }
