@@ -136,8 +136,8 @@ test("transaction status endpoint returns 202 until all receipts are finalized",
     assert.equal(response.status, 202);
     const body = await response.json();
     assert.equal(body.execution_state, "in_progress");
-    assert.equal(body.final_execution_status, "UNKNOWN");
-    assert.equal(body.requested_wait_until, "FINAL");
+    assert.equal(body.final_execution_status, "EXECUTED");
+    assert.equal(body.requested_wait_until, undefined);
     assert.equal(body.receipts_finalized, false);
   });
 });
@@ -175,6 +175,8 @@ test("transaction status endpoint maps unknown hashes, invalid queries and RPC t
     assert.equal(response.status, 202);
     const body = await response.json();
     assert.equal(body.execution_state, "in_progress");
+    assert.equal(body.final_execution_status, "UNKNOWN");
+    assert.equal(body.requested_wait_until, "FINAL");
     assert.equal(body.receipts_finalized, false);
   });
 });
