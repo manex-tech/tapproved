@@ -554,6 +554,7 @@ impl Tapproved {
 fn emit_payment_event(event: &str, payment: &Payment, approval_method: Option<&str>) {
     let resulting_status = match event {
         "payment_requested" => payment.status,
+        "payment_approved" if approval_method == Some("hardware") => PaymentStatus::Processing,
         "payment_approved" => PaymentStatus::Approved,
         "payment_paid" => PaymentStatus::Paid,
         "payment_failed" => PaymentStatus::Failed,
@@ -1313,7 +1314,7 @@ mod tests {
         let expected = [
             ("payment_requested", "pending", false),
             ("payment_approved", "approved", false),
-            ("payment_approved", "approved", true),
+            ("payment_approved", "processing", true),
             ("payment_paid", "paid", false),
             ("payment_failed", "failed", false),
             ("payment_cancelled", "cancelled", false),
