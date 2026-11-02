@@ -127,48 +127,6 @@ impl Tapproved {
         }
     }
 
-    /// One-time recovery for accounts whose existing STATE was written by an
-    /// incompatible contract. Bypasses old-state deserialization but leaves
-    /// unrelated storage keys untouched.
-    #[init(ignore_state)]
-    pub fn migrate_from_incompatible_state(
-        agent_id: AccountId,
-        device_public_key: Vec<u8>,
-        soft_limit_yocto: U128,
-        hard_limit_yocto: U128,
-        daily_limit_yocto: U128,
-        allowed_recipients: Vec<AccountId>,
-        network_id: String,
-    ) -> Self {
-        if env::predecessor_account_id() != env::current_account_id() {
-            env::panic_str("migration must be authorized by the contract account itself");
-        }
-        const MIGRATION_MARKER: &[u8] = b"tapproved:migration:incompatible-state:v1";
-        if env::storage_read(MIGRATION_MARKER).is_some() {
-            env::panic_str("incompatible-state migration has already been used");
-        }
-        let (soft, hard, daily) = (soft_limit_yocto.0, hard_limit_yocto.0, daily_limit_yocto.0);
-        if let Err(reason) = validate_policy(&device_public_key, soft, hard, daily, &allowed_recipients, &network_id) {
-            env::panic_str(reason);
-        }
-        env::storage_write(MIGRATION_MARKER, b"completed");
-        Self {
-            owner_id: env::current_account_id(),
-            agent_id,
-            device_public_key,
-            network_id,
-            soft_limit_yocto: soft,
-            hard_limit_yocto: hard,
-            daily_limit_yocto: daily,
-            allowed_recipients,
-            paused: false,
-            next_payment_id: 1,
-            payments: Vec::new(),
-            active_payment_id: None,
-            daily_usage: Vec::new(),
-        }
-    }
-
     /// Pause all new spending requests. Only the policy owner may change this state.
     pub fn pause(&mut self) { self.assert_owner(); self.paused = true; }
 
@@ -455,38 +413,6 @@ fn validate_policy(
 mod tests {
     use super::*;
     fn account(value: &str) -> AccountId { value.parse().expect("valid test account") }
-
-    #[test]
-    fn deployed_presence_state_fixture_is_not_tapproved_state() {
-        // Decoded from the STATE value observed on manextech.testnet.
-        let legacy_state = [
-            0x08, 0x00, 0x00, 0x00, b'p', b'r', b'e', b's', b'e', b'n', b'c', b'e',
-            0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        ];
-        assert!(Tapproved::try_from_slice(&legacy_state).is_err());
-    }
-
-    #[test]
-    fn migration_initializes_policy_and_preserves_unrelated_storage() {
-        use near_sdk::test_utils::VMContextBuilder;
-        use near_sdk::testing_env;
-        let context = VMContextBuilder::new()
-            .current_account_id(account("manextech.testnet"))
-            .predecessor_account_id(account("manextech.testnet"))
-            .build();
-        testing_env!(context);
-        env::storage_write(b"presence_name:fixture", b"legacy-value");
-        let state = Tapproved::migrate_from_incompatible_state(
-            account("manex-agent.testnet"), vec![7; 32], U128(10), U128(100),
-            U128(1_000), vec![account("merchant.testnet")], "testnet".to_string(),
-        );
-        assert_eq!(state.owner_id, account("manextech.testnet"));
-        assert_eq!(state.agent_id, account("manex-agent.testnet"));
-        assert_eq!(state.next_payment_id, 1);
-        assert_eq!(state.active_payment_id, None);
-        assert_eq!(env::storage_read(b"presence_name:fixture"), Some(b"legacy-value".to_vec()));
-        assert_eq!(env::storage_read(b"tapproved:migration:incompatible-state:v1"), Some(b"completed".to_vec()));
-    }
 
     fn admin_contract(predecessor: &str) -> Tapproved {
         use near_sdk::test_utils::VMContextBuilder;
