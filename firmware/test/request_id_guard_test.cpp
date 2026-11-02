@@ -10,6 +10,7 @@ int main() {
   assert(!guard.accept(first));
   assert(guard.accept(second));
   assert(!guard.accept(second));
+  assert(!guard.accept(first));
   assert(!guard.accept("short"));
   return 0;
 }
