@@ -13,6 +13,8 @@ The project owner confirmed that the replacement Tapproved contract was deployed
 
 This record intentionally does not invent a transaction hash, block height, deployment timestamp or Wasm checksum. Those values are not recorded in the repository's current deployment evidence.
 
+The keyed 90-day daily-accounting implementation is a subsequent source change and is not deployed to this account. It changes the contract's Borsh state layout; deployment requires a separately approved fresh-account plan unless a verified migration is designed. The canonical account and its current ABI remain unchanged by this repository branch.
+
 ## Historical account-state incident
 
 An earlier attempt to use `manextech.testnet` encountered incompatible pre-existing `presence` state. Tapproved view calls failed to deserialize that state. The current repository does not contain an in-place migration entry point; the incompatible migration implementation was removed. The resolution confirmed by the project owner was deployment of a replacement contract followed by NEAR CLI testing.
