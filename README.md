@@ -30,7 +30,7 @@ The contract is the policy authority. The relay authenticates agent requests, pe
 | NEAR contract policy and spend lifecycle | Implemented; Rust tests and Wasm build in CI |
 | Hardware Ed25519 verification and transfer callback | Implemented |
 | Testnet deployment | User-confirmed deployed and tested using NEAR CLI; see [deployment status](docs/TESTNET-DEPLOYMENT.md) |
-| ESP32 approval firmware | Implemented prototype; exact NEAR and yoctoNEAR approval summary, recipient/payment ID presentation, PlatformIO build and host-compiled amount-format tests in CI; D1 source audit completed with nine findings allocated to Phase D follow-through |
+| ESP32 approval firmware | Implemented prototype; exact NEAR and yoctoNEAR approval summary, recipient/payment ID presentation, fresh debounced GPIO25 press/release approval, PlatformIO build and host-compiled amount/button-state tests in CI; D1 source audit completed with nine findings allocated to Phase D follow-through |
 | Firmware/protocol audit | [D1 audit report](docs/FIRMWARE-PROTOCOL-AUDIT.md); findings are not yet fixes |
 | Approval protocol v1 | Documented with deterministic fixture |
 | Relay | Authenticated payment, approval, transaction and recovery APIs; RPC configuration locked to `testnet`, `manextech.testnet` and `manex-agent.testnet`; durable request/operation journal; separate least-privilege request, approval and expiry signers; bounded ESP32 serial bridge; transaction receipt polling; finalized-chain-time expiry and restart-recovery monitors; HTTP-level integration coverage for payment, hardware approval, idempotency and recovery flows |
