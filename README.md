@@ -128,7 +128,7 @@ CI runs Node syntax/tests, Rust contract tests plus a release Wasm build, and an
 - Daily usage is keyed by UTC day and retains at most 90 day records. The view separates committed spend from outstanding reservations and reports used and remaining capacity; the daily limit applies to spent plus reserved.
 - Successful settlement moves the amount from reserved to spent. Failed, expired and cancelled payments release the reservation. Older daily records are pruned on a new request, but records with outstanding reservations are never discarded.
 - The owner can atomically update soft, hard and daily limits; reductions below any retained day's spent-plus-reserved usage are rejected. The recipient allowlist is capped at 100 accounts.
-- Firmware stores the Ed25519 seed in ordinary ESP32 NVS. Secure boot, flash encryption, debug-port hardening, authenticated device transport and a trusted display are not configured.
+- Firmware stores the Ed25519 seed in ordinary ESP32 NVS. The seed is not held in a global RAM variable: it is loaded into a scope-bound zeroizing buffer at startup only to derive the public key, then reloaded after a fresh physical approval and checked against the startup identity before signing. This reduces RAM exposure but does not encrypt NVS or prevent runtime/debug extraction while signing. Secure Boot, Flash Encryption, NVS encryption and debug-port hardening are not configured. See the [ESP32 security assessment](docs/ESP32-SECURITY-ASSESSMENT.md) before any production hardening; silicon revision and eFuse state must be inspected first.
 - Serial output is not a trusted display. A compromised host or relay could misrepresent the payment details shown to the operator.
 - The hardware milestone used the contract account as recipient. External-recipient settlement and broader end-to-end automation still need explicit testing.
 - The project has not undergone an independent security audit. Testnet only.
@@ -139,7 +139,7 @@ CI runs Node syntax/tests, Rust contract tests plus a release Wasm build, and an
 - [Testnet deployment status](docs/TESTNET-DEPLOYMENT.md)
 - [Hardware approval milestone](docs/TESTNET-HARDWARE-APPROVAL-MILESTONE.md)
 - [Approval protocol v1](docs/APPROVAL-PROTOCOL.md)
-- [Firmware and protocol audit](docs/FIRMWARE-PROTOCOL-AUDIT.md)
+- [Firmware and protocol audit](docs/FIRMWARE-PROTOCOL-AUDIT.md)\n- [ESP32 security assessment](docs/ESP32-SECURITY-ASSESSMENT.md)
 - [Local simulator](docs/SIMULATOR.md)
 
 ## License
