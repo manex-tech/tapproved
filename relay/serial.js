@@ -14,13 +14,16 @@ export class SerialBridgeError extends Error {
   }
 }
 
-function decimalString(value, field, { positive = false } = {}) {
-  if (typeof value !== "string" || !/^[0-9]+$/.test(value)) {
-    throw new SerialBridgeError("invalid_payment_context", `${field} must be a decimal string`);
+function decimalString(value, field, { positive = false, bits } = {}) {
+  if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)) {
+    throw new SerialBridgeError("invalid_payment_context", `${field} must be a canonical decimal string`);
   }
   const parsed = BigInt(value);
   if (positive && parsed === 0n) {
     throw new SerialBridgeError("invalid_payment_context", `${field} must be greater than zero`);
+  }
+  if (bits !== undefined && parsed > ((1n << BigInt(bits)) - 1n)) {
+    throw new SerialBridgeError("invalid_payment_context", `${field} exceeds u${bits}`);
   }
   return value;
 }
@@ -37,18 +40,18 @@ export function buildDeviceApprovalFrame(payment) {
   }
   if (typeof payment.recipient_id !== "string" ||
       !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(payment.recipient_id) ||
-      payment.recipient_id.length > 64) {
+      payment.recipient_id.length < 2 || payment.recipient_id.length > 64) {
     throw new SerialBridgeError("invalid_payment_context", "recipient_id is invalid");
   }
 
   return {
     contract_id: DEFAULT_CONTRACT_ID,
     network_id: "testnet",
-    payment_id: decimalString(payment.id, "payment_id", { positive: true }),
+    payment_id: decimalString(payment.id, "payment_id", { positive: true, bits: 64 }),
     recipient_id: payment.recipient_id,
-    amount_yocto: decimalString(payment.amount_yocto, "amount_yocto", { positive: true }),
-    nonce: decimalString(payment.nonce, "nonce"),
-    expires_at_ns: decimalString(payment.expires_at_ns, "expires_at_ns", { positive: true })
+    amount_yocto: decimalString(payment.amount_yocto, "amount_yocto", { positive: true, bits: 128 }),
+    nonce: decimalString(payment.nonce, "nonce", { positive: true, bits: 64 }),
+    expires_at_ns: decimalString(payment.expires_at_ns, "expires_at_ns", { positive: true, bits: 64 })
   };
 }
 
