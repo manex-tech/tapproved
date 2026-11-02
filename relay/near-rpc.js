@@ -49,4 +49,15 @@ export async function getActivePayment(options) {
   return callViewMethod("get_active_payment", {}, options);
 }
 
+export async function getPayment(paymentId, options) {
+  if (typeof paymentId !== "string" || !/^[0-9]+$/.test(paymentId)) {
+    throw new TypeError("payment ID must be a decimal string");
+  }
+  const numericId = BigInt(paymentId);
+  if (numericId > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError("payment ID exceeds the safe JSON integer range");
+  }
+  return callViewMethod("get_payment", { payment_id: Number(numericId) }, options);
+}
+
 export { DEFAULT_RPC_URL, DEFAULT_CONTRACT_ID };
