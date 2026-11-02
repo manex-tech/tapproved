@@ -26,9 +26,9 @@ pio device monitor --baud 115200
 
 Wire a normally-open push button between GPIO25 and GND. The input uses the internal pull-up. Never connect 5 V to an ESP32 GPIO.
 
-The relay sends one JSON object per serial line with fields `contract_id`, `network_id`, `payment_id`, `recipient_id`, `amount_yocto`, `nonce`, and `expires_at_ns`. Integer values are decimal strings. The firmware uses a fixed-size input buffer, rejects oversized frames, encodes the v1 payload itself, waits for the physical button, and signs with Ed25519. Amounts are converted into 16 little-endian bytes without floating point or compiler-specific 128-bit integers.
+The relay sends one UTF-8 JSON object per serial line with `frame_version: 1`, a fresh UUID v4 `request_id`, and the fields `contract_id`, `network_id`, `payment_id`, `recipient_id`, `amount_yocto`, `nonce`, and `expires_at_ns`. The device echoes the frame version and request ID in every correlated signed, rejected, or device-error response. The request ID is transport metadata and is not included in the Ed25519 approval message. Integer values are decimal strings. The firmware uses a fixed-size input buffer, rejects oversized frames, encodes the v1 payload itself, waits for the physical button, and signs with Ed25519. Amounts are converted into 16 little-endian bytes without floating point or compiler-specific 128-bit integers.
 
-The device may print human-readable prompt lines while waiting. Its machine-readable result is one JSON line: a signed response containing `public_key_hex` and `signature_hex`, or a rejection/error status. The relay ignores prompt text and accepts only a correctly shaped signature response.
+The device may print human-readable prompt lines while waiting. Its machine-readable result is one JSON line containing `frame_version` and the matching `request_id`: a signed response additionally contains `public_key_hex` and `signature_hex`, or the device returns a correlated rejection/error status. The relay ignores prompt text, ignores stale response IDs, and accepts only a correctly shaped response for the active request. The relay ignores prompt text and accepts only a correctly shaped signature response.
 
 ## Key handling warning
 
