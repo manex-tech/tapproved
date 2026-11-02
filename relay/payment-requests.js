@@ -126,7 +126,7 @@ export class JsonIdempotencyStore {
             typeof operation.agent_id !== "string" ||
             typeof operation.payment_id !== "string" || !/^[0-9]+$/.test(operation.payment_id) ||
             !["approval", "expiry"].includes(operation.kind) ||
-            !["submitting", "submitted", "uncertain", "confirmed"].includes(operation.state) ||
+            !["submitting", "submitted", "uncertain", "confirmed", "rejected"].includes(operation.state) ||
             (operation.transaction_hash !== null &&
               (typeof operation.transaction_hash !== "string" || operation.transaction_hash.length === 0 || operation.transaction_hash.length > 128))) {
           throw new Error("invalid payment operation record");
@@ -236,8 +236,20 @@ export class JsonIdempotencyStore {
       await this.#load();
       const id = `${agentId}:${paymentId}:${kind}`;
       const existing = this.#operations.get(id);
-      if (existing) return { created: false, operation: structuredClone(existing) };
+      if (existing && existing.state !== "rejected") {
+        return { created: false, operation: structuredClone(existing) };
+      }
       const now = new Date().toISOString();
+      if (existing) {
+        existing.state = "submitting";
+        existing.transaction_hash = null;
+        existing.observed_status = null;
+        existing.error_code = null;
+        existing.attempt_count = (existing.attempt_count ?? 1) + 1;
+        existing.updated_at = now;
+        await this.#persist();
+        return { created: true, operation: structuredClone(existing) };
+      }
       const operation = {
         id,
         agent_id: agentId,
@@ -246,6 +258,7 @@ export class JsonIdempotencyStore {
         state: "submitting",
         transaction_hash: null,
         observed_status: null,
+        attempt_count: 1,
         created_at: now,
         updated_at: now
       };
@@ -274,6 +287,24 @@ export class JsonIdempotencyStore {
       operation.transaction_hash = transactionHash;
       operation.updated_at = new Date().toISOString();
       await this.#persist();
+      return structuredClone(operation);
+    });
+  }
+
+  async rejectOperation(agentId, paymentId, kind, errorCode) {
+    if (typeof errorCode !== "string" || !/^[a-z0-9_]{1,64}$/.test(errorCode)) {
+      throw new TypeError("operation rejection code is invalid");
+    }
+    return this.#exclusive(async () => {
+      await this.#load();
+      const operation = this.#operations.get(`${agentId}:${paymentId}:${kind}`);
+      if (!operation) throw new IdempotencyStoreError("payment operation does not exist");
+      if (operation.state === "submitting") {
+        operation.state = "rejected";
+        operation.error_code = errorCode;
+        operation.updated_at = new Date().toISOString();
+        await this.#persist();
+      }
       return structuredClone(operation);
     });
   }
