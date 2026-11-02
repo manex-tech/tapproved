@@ -228,8 +228,8 @@ test("pending-approvals endpoint returns only a contract-pending payment", async
 
 test("pending-approvals endpoint excludes approved, processing and absent payments", async () => {
   for (const activePayment of [
-    { id: "1", status: "approved" },
-    { id: "2", status: "processing" },
+    { id: "1", agent_id: "manex-agent.testnet", status: "approved" },
+    { id: "2", agent_id: "manex-agent.testnet", status: "processing" },
     null
   ]) {
     await withServer({
