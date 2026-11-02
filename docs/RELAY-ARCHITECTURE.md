@@ -73,7 +73,7 @@ Canonical defaults are NEAR Testnet, `https://rpc.testnet.near.org`, and `manext
 
 ## 6. Reliability and safety invariants
 
-- The contract is the sole authority for policy and settlement. The backend agent signer is restricted to the `request_spend` and `execute_approved_spend` methods on the canonical contract and cannot transfer NEAR from the agent account.
+- The contract is the sole authority for policy and settlement. The backend agent signer is restricted to the exact `request_spend`, `execute_approved_spend` and `approve_spend` methods on the canonical contract and cannot transfer NEAR from the agent account. The legacy exact two-method key remains auto-spend-only.
 - A request retry with the same idempotency key must not create a second logical payment.
 - A serial retry must not cause a second signature or a second contract approval.
 - A device signature is bound to contract, network, payment ID, recipient, amount, nonce and expiry by protocol v1.
