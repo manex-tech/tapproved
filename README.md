@@ -32,10 +32,10 @@ The contract is the policy authority. The relay authenticates agent requests, pe
 | Testnet deployment | User-confirmed deployed and tested using NEAR CLI; see [deployment status](docs/TESTNET-DEPLOYMENT.md) |
 | ESP32 approval firmware | Implemented prototype; PlatformIO build in CI |
 | Approval protocol v1 | Documented with deterministic fixture |
-| Relay | Authenticated payment-request API, persistent idempotency journal, restricted signer, pending-approval polling and payment status reads; bounded USB serial transport module implemented, but signature submission and full lifecycle orchestration remain incomplete |
+| Relay | Authenticated payment-request API, persistent idempotency journal, restricted signer, pending-approval polling and payment status reads; bounded USB serial transport, authenticated hardware-approval processing and locally verified contract signature submission implemented; transaction receipt/lifecycle monitoring remains in progress |
 | Local simulator | Implemented; uses an ephemeral key not registered on-chain |
 | Agent transaction orchestration | `request_spend` and automatic `execute_approved_spend` submission implemented; recovery remains incomplete |
-| Serial relay-to-device bridge | Bounded newline-delimited USB serial transport module and ESP32 frame parser implemented; service orchestration and contract signature submission remain in progress |
+| Serial relay-to-device bridge | Bounded newline-delimited USB serial transport module and ESP32 frame parser implemented; authenticated one-cycle approval orchestration and signature submission are implemented; lifecycle/receipt monitoring remains in progress |
 | Dashboard | Not implemented |
 | Independent security audit | Not performed |
 
@@ -47,9 +47,9 @@ All routes below require the configured bearer token except `GET /health`.
 
 - `GET /v1/pending-approvals` returns the active payment only when the contract status is exactly `pending`. Its `approval_request` contains the canonical contract ID and network ID plus the contract-derived payment ID, recipient, exact yoctoNEAR amount, nonce and expiry timestamp. It returns `approval_required: false` and null payment/request fields when no hardware approval is pending.
 - `GET /v1/payments/:paymentId` reads the requested payment from the contract and returns its current lifecycle status. The response distinguishes pending approval from terminal `paid`, `failed`, `expired` and `cancelled` states. Missing or foreign-agent payment records are not exposed.
-- Both endpoints are read-only. They do not approve, expire, execute or transfer funds. Contract state remains authoritative.
+- Both endpoints are read-only. They do not approve, expire, execute or transfer funds. Contract state remains authoritative.\n- `POST /v1/approvals/process` starts one explicit hardware-approval cycle: it reads the current contract-pending payment, sends it over the configured serial bridge, verifies the returned key against the on-chain device key and checks the v1 Ed25519 signature locally before submitting `approve_spend`. It does not accept caller-supplied payment fields.
 
-The pending-approval API returns contract-derived fields. C7 adds a bounded newline-delimited USB serial transport at 115200 baud with a 2,048-byte frame limit and 35-second default approval timeout. It permits one outstanding approval and does not automatically retry a physical approval. The relay-to-device service orchestration and contract signature submission are separate follow-on tasks.
+The pending-approval API returns contract-derived fields. C7 adds a bounded newline-delimited USB serial transport at 115200 baud with a 2,048-byte frame limit and 35-second default approval timeout. It permits one outstanding approval and does not automatically retry a physical approval. C8 adds an authenticated `POST /v1/approvals/process` one-cycle operation. The relay checks the returned public key against `get_policy.device_public_key`, verifies the canonical v1 signature, and submits `approve_spend` using a separate FunctionCall key restricted to that method. It never retries an ambiguous approval submission automatically.
 
 ## Architecture
 
@@ -91,7 +91,7 @@ Configure the relay from the repository root:
 cp .env.example .env
 ```
 
-Set a high-entropy `AGENT_API_TOKEN` and provide `NEAR_SIGNER_PRIVATE_KEY` only if a dedicated, already-registered FunctionCall key exists on `manex-agent.testnet`. That key must be restricted to receiver `manextech.testnet`, methods `request_spend` and `execute_approved_spend` only, and a finite allowance no greater than 5 NEAR. Do not use a FullAccess key. The relay verifies this permission against the live Testnet access-key list and refuses broader keys. Keep `.env` local; it is git-ignored. For the ESP32 USB serial transport, set `SERIAL_PORT` to the local device path (for example `/dev/ttyUSB0` on Linux or `COM7` on Windows). The default baud rate is 115200 and the approval response timeout is 35 seconds.
+Set a high-entropy `AGENT_API_TOKEN` and provide `NEAR_SIGNER_PRIVATE_KEY` only if a dedicated, already-registered FunctionCall key exists on `manex-agent.testnet`. That key must be restricted to receiver `manextech.testnet`, methods `request_spend` and `execute_approved_spend` only, and a finite allowance no greater than 5 NEAR. Set `NEAR_APPROVAL_SIGNER_PRIVATE_KEY` to a second Ed25519 FunctionCall key on `manex-agent.testnet`, restricted to receiver `manextech.testnet` and method `approve_spend` only, with a finite allowance no greater than 5 NEAR. Do not use a FullAccess key. The relay verifies this permission against the live Testnet access-key list and refuses broader keys. Keep `.env` local; it is git-ignored. For the ESP32 USB serial transport, set `SERIAL_PORT` to the local device path (for example `/dev/ttyUSB0` on Linux or `COM7` on Windows). The default baud rate is 115200 and the approval response timeout is 35 seconds.
 
 Start the relay:
 
@@ -99,7 +99,7 @@ Start the relay:
 npm start
 ```
 
-The relay loads `.env` automatically and defaults to `https://rpc.testnet.near.org`, `manextech.testnet` and `manex-agent.testnet`. If signer configuration or access-key verification fails, the HTTP service starts without payment submission and `POST /v1/payment-requests` returns `503`. No key is created or modified by the relay.
+The relay loads `.env` automatically and defaults to `https://rpc.testnet.near.org`, `manextech.testnet` and `manex-agent.testnet`. If either signer configuration or access-key verification fails, the HTTP service starts with the corresponding operation disabled. `POST /v1/payment-requests` returns `503` if the request/execution signer is unavailable; `POST /v1/approvals/process` returns `503` if the approval signer or serial port is unavailable. The owner must provision both restricted keys separately; the relay never creates or modifies keys.
 
 Run the local-only simulator:
 
