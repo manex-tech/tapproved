@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
+import { createStructuredLogger, sanitizeError } from "./structured-logger.js";
 import { pathToFileURL } from "node:url";
 import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy, getTransactionStatus, isValidTransactionHash, TransactionNotFoundError, TransactionQueryValidationError, TransactionWaitTimeoutError } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
@@ -136,8 +138,27 @@ export function createRelayServer(options = {}) {
   const readActivePayment = options.getActivePayment ?? getActivePayment;
   const readPayment = options.getPayment ?? getPayment;
   const readTransactionStatus = options.getTransactionStatus ?? getTransactionStatus;
+  const logger = options.logger ?? createStructuredLogger();
 
   return createServer(async (request, response) => {
+    const requestId = randomUUID();
+    const startedAt = Date.now();
+    response.setHeader("x-request-id", requestId);
+    response.once("finish", () => {
+      const rawPath = (request.url ?? "/").split("?")[0];
+      const route = rawPath.replace(/^\\/v1\\/transactions\\/[^/]+$/, "/v1/transactions/:hash")
+        .replace(/^\\/v1\\/payments\\/[^/]+$/, "/v1/payments/:paymentId");
+      const fields = {
+        request_id: requestId,
+        method: request.method ?? "UNKNOWN",
+        route,
+        status: response.statusCode,
+        duration_ms: Date.now() - startedAt
+      };
+      if (response.statusCode >= 500) logger.error("http.request.failed", fields);
+      else if (response.statusCode >= 400) logger.warn("http.request.rejected", fields);
+      else logger.info("http.request.completed", fields);
+    });
     let pathname;
     let requestUrl;
     try {
@@ -398,6 +419,7 @@ const isMain = process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href;
 
 async function startRelay() {
+  const logger = createStructuredLogger();
   const port = Number(process.env.PORT ?? 3000);
   const storePath = process.env.TAPPROVED_IDEMPOTENCY_PATH ?? ".tapproved/idempotency.json";
   const idempotencyStore = new JsonIdempotencyStore(storePath);
@@ -406,9 +428,9 @@ async function startRelay() {
   try {
     const signer = await createNearAgentSigner();
     submitPayment = signer.requestSpend;
-    console.log("Restricted NEAR agent signer verified for manex-agent.testnet.");
+    logger.info("signer.agent.ready", { component: "near-agent" });
   } catch (error) {
-    console.error(`NEAR agent signer unavailable; payment submissions disabled: ${error.message}`);
+    logger.error("signer.agent.unavailable", { component: "near-agent", ...sanitizeError(error, "agent_signer_unavailable") });
   }
 
   let processHardwareApproval;
@@ -419,9 +441,9 @@ async function startRelay() {
     const approvalSigner = await createNearApprovalSigner();
     serialBridge = createSerialBridge();
     processHardwareApproval = createApprovalProcessor({ approvalSigner, serialBridge, operationStore: idempotencyStore });
-    console.log("Hardware-approval signer verified for approve_spend.");
+    logger.info("signer.approval.ready", { component: "hardware-approval" });
   } catch (error) {
-    console.error(`Hardware approval unavailable; device approval submission disabled: ${error.message}`);
+    logger.error("signer.approval.unavailable", { component: "hardware-approval", ...sanitizeError(error, "approval_signer_unavailable") });
   }
 
   try {
@@ -432,17 +454,17 @@ async function startRelay() {
       intervalMs: readExpiryMonitorInterval(),
       onResult: (result) => {
         if (["expired", "submitted_unconfirmed"].includes(result?.state)) {
-          console.log(`Payment expiry monitor: ${result.state} for payment ${result.payment_id}.`);
+          logger.info("expiry.monitor.result", { component: "expiry-monitor", state: result.state, payment_id: result.payment_id });
         }
       },
-      onError: () => {
-        console.error("Payment expiry monitor cycle failed; ambiguous expiry submissions are not retried in-process.");
+      onError: (error) => {
+        logger.error("expiry.monitor.failed", { component: "expiry-monitor", ...sanitizeError(error, "expiry_monitor_failed") });
       }
     });
     expiryMonitor.start();
-    console.log("Permissionless payment-expiry monitor enabled.");
+    logger.info("expiry.monitor.enabled", { component: "expiry-monitor" });
   } catch (error) {
-    console.error(`Payment expiry monitor unavailable; automatic expiry calls disabled: ${error.message}`);
+    logger.error("expiry.monitor.unavailable", { component: "expiry-monitor", ...sanitizeError(error, "expiry_monitor_unavailable") });
   }
 
   try {
@@ -451,26 +473,25 @@ async function startRelay() {
       intervalMs: readRecoveryInterval(),
       onResult: (result) => {
         if (result?.state === "manual_review_required") {
-          console.error(
-            `Payment recovery needs review: ${result.unresolved_payment_requests} request(s), ${result.unresolved_operations} operation(s).`
-          );
+          logger.warn("recovery.manual_review_required", { component: "recovery-monitor", state: result.state });
         }
       },
-      onError: () => {
-        console.error("Payment recovery poll failed; no transaction is automatically resubmitted.");
+      onError: (error) => {
+        logger.error("recovery.monitor.failed", { component: "recovery-monitor", ...sanitizeError(error, "recovery_monitor_failed") });
       }
     });
     recoveryService.start();
-    console.log("Contract-state recovery monitor enabled.");
+    logger.info("recovery.monitor.enabled", { component: "recovery-monitor" });
   } catch (error) {
-    console.error(`Payment recovery monitor unavailable: ${error.message}`);
+    logger.error("recovery.monitor.unavailable", { component: "recovery-monitor", ...sanitizeError(error, "recovery_monitor_unavailable") });
   }
 
   const server = createRelayServer({
     idempotencyStore,
     submitPayment,
     processHardwareApproval,
-    reconcileRecovery: recoveryService?.reconcileOnce
+    reconcileRecovery: recoveryService?.reconcileOnce,
+    logger
   });
   server.on("close", () => {
     if (serialBridge) void serialBridge.disconnect();
@@ -478,13 +499,13 @@ async function startRelay() {
     if (recoveryService) recoveryService.stop();
   });
   server.listen(port, () => {
-    console.log(`Tapproved testnet relay listening on port ${port}`);
+    logger.info("relay.listening", { component: "http-server" });
   });
 }
 
 if (isMain) {
   startRelay().catch((error) => {
-    console.error(`Tapproved relay startup failed: ${error.message}`);
+    createStructuredLogger().error("relay.startup.failed", { component: "startup", ...sanitizeError(error, "relay_startup_failed") });
     process.exitCode = 1;
   });
 }
