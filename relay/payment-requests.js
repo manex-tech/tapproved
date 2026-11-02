@@ -69,6 +69,7 @@ function recordId(agentId, key) {
 export class JsonIdempotencyStore {
   #filePath;
   #records = new Map();
+  #paymentTransactions = new Map();
   #loaded = false;
   #tail = Promise.resolve();
 
@@ -106,7 +107,8 @@ export class JsonIdempotencyStore {
     let parsed;
     try {
       parsed = JSON.parse(raw);
-      if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.records)) {
+      if (!parsed || ![1, 2].includes(parsed.version) || !Array.isArray(parsed.records) ||
+          (parsed.version === 2 && !Array.isArray(parsed.payment_transactions))) {
         throw new Error("invalid journal schema");
       }
       for (const record of parsed.records) {
@@ -118,6 +120,18 @@ export class JsonIdempotencyStore {
           throw new Error("invalid journal record");
         }
         this.#records.set(record.id, record);
+      }
+      for (const transaction of parsed.payment_transactions ?? []) {
+        if (!transaction || typeof transaction.id !== "string" ||
+            typeof transaction.agent_id !== "string" ||
+            typeof transaction.payment_id !== "string" ||
+            !/^[0-9]+$/.test(transaction.payment_id) ||
+            !["request_transaction_hash", "execution_transaction_hash", "approval_transaction_hash"]
+              .every((field) => transaction[field] === null ||
+                (typeof transaction[field] === "string" && transaction[field].length > 0 && transaction[field].length <= 128))) {
+          throw new Error("invalid payment transaction record");
+        }
+        this.#paymentTransactions.set(transaction.id, transaction);
       }
     } catch {
       throw new IdempotencyStoreError("idempotency journal is corrupt; refusing payment submissions");
@@ -132,8 +146,9 @@ export class JsonIdempotencyStore {
     const handle = await open(temporary, "wx", 0o600);
     try {
       await handle.writeFile(JSON.stringify({
-        version: 1,
-        records: [...this.#records.values()]
+        version: 2,
+        records: [...this.#records.values()],
+        payment_transactions: [...this.#paymentTransactions.values()]
       }) + "\n", "utf8");
       await handle.sync();
     } finally {
@@ -198,6 +213,52 @@ export class JsonIdempotencyStore {
     });
   }
 
+
+  async recordPaymentTransaction(agentId, paymentId, kind, transactionHash) {
+    if (typeof agentId !== "string" || !ACCOUNT_ID.test(agentId) ||
+        typeof paymentId !== "string" || !/^[0-9]+$/.test(paymentId) ||
+        BigInt(paymentId) > BigInt(Number.MAX_SAFE_INTEGER) ||
+        !["request", "execution", "approval"].includes(kind) ||
+        typeof transactionHash !== "string" || transactionHash.length === 0 || transactionHash.length > 128) {
+      throw new TypeError("invalid payment transaction tracking record");
+    }
+    return this.#exclusive(async () => {
+      await this.#load();
+      const id = `${agentId}:${paymentId}`;
+      const field = `${kind}_transaction_hash`;
+      let record = this.#paymentTransactions.get(id);
+      if (!record) {
+        const now = new Date().toISOString();
+        record = {
+          id,
+          agent_id: agentId,
+          payment_id: paymentId,
+          request_transaction_hash: null,
+          execution_transaction_hash: null,
+          approval_transaction_hash: null,
+          created_at: now,
+          updated_at: now
+        };
+      }
+      if (record[field] && record[field] !== transactionHash) {
+        throw new IdempotencyStoreError("payment transaction hash conflicts with an existing record");
+      }
+      record[field] = transactionHash;
+      record.updated_at = new Date().toISOString();
+      this.#paymentTransactions.set(id, record);
+      await this.#persist();
+      return structuredClone(record);
+    });
+  }
+
+  async getPaymentTransactions(agentId, paymentId) {
+    return this.#exclusive(async () => {
+      await this.#load();
+      const record = this.#paymentTransactions.get(`${agentId}:${paymentId}`);
+      return record ? structuredClone(record) : null;
+    });
+  }
+
   async get(agentId, idempotencyKey) {
     return this.#exclusive(async () => {
       await this.#load();
@@ -235,6 +296,14 @@ export async function submitIdempotentPaymentRequest({
       execution_transaction_hash: typeof result?.execution_transaction_hash === "string" ? result.execution_transaction_hash : null,
       payment: result?.payment && typeof result.payment === "object" ? result.payment : null
     };
+    if (safeResult.payment?.id && typeof store.recordPaymentTransaction === "function") {
+      if (safeResult.transaction_hash) {
+        await store.recordPaymentTransaction(agentId, safeResult.payment.id, "request", safeResult.transaction_hash);
+      }
+      if (safeResult.execution_transaction_hash) {
+        await store.recordPaymentTransaction(agentId, safeResult.payment.id, "execution", safeResult.execution_transaction_hash);
+      }
+    }
     const record = await store.transition(agentId, normalizedKey, "submitted", safeResult);
     return { replayed: false, record };
   } catch (error) {
