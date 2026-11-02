@@ -34,7 +34,7 @@ The contract is the policy authority. The relay authenticates agent requests, pe
 | Approval protocol v1 | Documented with deterministic fixture |
 | Relay | Authenticated payment and approval APIs, durable idempotency journal, separate least-privilege request, approval and expiry signers, bounded ESP32 serial bridge, transaction receipt polling and finalized-chain-time expiry monitor |
 | Local simulator | Implemented; uses an ephemeral key not registered on-chain |
-| Agent transaction orchestration | Request idempotency and approval/expiry operation journal persist across restarts; a contract-state recovery worker reconciles exact matches and leaves ambiguous cases for manual review without resubmission |
+| Agent transaction orchestration | Request idempotency and approval/expiry operation journal persist across restarts; contract-state recovery confirms operations by payment ID and leaves request records without provable correlation for manual review |
 | Serial relay-to-device bridge | Bounded newline-delimited USB serial transport, ESP32 frame parser and one-cycle approval/signature submission are implemented; transaction and receipt status API now provides explicit finality and receipt outcomes |
 | Dashboard | Not implemented |
 | Independent security audit | Not performed |
@@ -54,7 +54,7 @@ All routes below require the configured bearer token except `GET /health`.
 
 The pending-approval API returns contract-derived fields. C7 adds a bounded newline-delimited USB serial transport at 115200 baud with a 2,048-byte frame limit and 35-second default approval timeout. It permits one outstanding approval and does not automatically retry a physical approval. C8 adds an authenticated `POST /v1/approvals/process` one-cycle operation. The relay checks the returned public key against `get_policy.device_public_key`, verifies the canonical v1 signature, and submits `approve_spend` using a separate FunctionCall key restricted to that method. It never retries an ambiguous approval submission automatically.
 
-C10 adds a background expiry keeper. It compares the active payment's `expires_at_ns` with the latest finalized NEAR block timestamp, then calls the contract's permissionless `expire_payment` method only for an expired `pending` or `approved` payment. A third FunctionCall key is restricted to `expire_payment` only. The contract rechecks expiry, releases the original reservation and clears the active payment. The relay confirms `get_payment` reports `expired`; overlapping polls and same-process retries after ambiguous submissions are suppressed. Durable restart reconciliation remains C11.
+C10 adds a background expiry keeper. It compares the active payment's `expires_at_ns` with the latest finalized NEAR block timestamp, then calls the contract's permissionless `expire_payment` method only for an expired `pending` or `approved` payment. A third FunctionCall key is restricted to `expire_payment` only. The contract rechecks expiry, releases the original reservation and clears the active payment. The relay confirms `get_payment` reports `expired`; overlapping polls and retries after ambiguous submissions are suppressed. C11 adds durable operation markers and restart reconciliation.
 
 ## Architecture
 
