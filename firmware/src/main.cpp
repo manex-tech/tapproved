@@ -191,4 +191,3 @@ void loop() {
   line.trim();
   if (line.length() > 0) handleRequest(line);
 }
-} // namespace
