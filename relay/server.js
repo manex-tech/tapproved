@@ -6,7 +6,9 @@ import {
   IdempotencyConflictError,
   IdempotencyStoreError,
   JsonIdempotencyStore,
-  submitIdempotentPaymentRequest
+  submitIdempotentPaymentRequest,
+  validateIdempotencyKey,
+  validatePaymentRequest
 } from "./payment-requests.js";
 
 const MAX_REQUEST_BODY_BYTES = 4096;
@@ -102,29 +104,34 @@ export function createRelayServer(options = {}) {
       }
 
       let body;
+      let key;
+      let payment;
       try {
         body = await readJsonBody(request);
-        const key = request.headers["idempotency-key"];
+        key = validateIdempotencyKey(request.headers["idempotency-key"]);
+        payment = validatePaymentRequest(body);
+      } catch (error) {
+        if (error instanceof HttpError) {
+          send(response, error.status, { error: error.code });
+        } else {
+          send(response, 400, { error: "invalid_payment_request", message: error.message });
+        }
+        return;
+      }
+
+      try {
         const result = await submitIdempotentPaymentRequest({
           store: idempotencyStore,
           agentId,
           idempotencyKey: key,
-          payment: body,
+          payment,
           submit: submitPayment
         });
         const status = result.record.state === "submitted" ? (result.replayed ? 200 : 202) : 202;
         send(response, status, paymentRequestResponse(result.record, result.replayed));
       } catch (error) {
-        if (error instanceof HttpError) {
-          send(response, error.status, { error: error.code });
-          return;
-        }
         if (error instanceof IdempotencyConflictError) {
           send(response, 409, { error: error.code });
-          return;
-        }
-        if (error instanceof TypeError || error instanceof RangeError) {
-          send(response, 400, { error: "invalid_payment_request", message: error.message });
           return;
         }
         if (error instanceof IdempotencyStoreError) {
@@ -135,7 +142,6 @@ export function createRelayServer(options = {}) {
         // A signer/RPC exception may occur after a transaction was broadcast.
         // Return the persisted state, never tell the client to submit a new key.
         try {
-          const key = request.headers["idempotency-key"];
           const record = await idempotencyStore.get(agentId, key);
           if (record) {
             send(response, 202, {
