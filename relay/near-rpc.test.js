@@ -35,37 +35,49 @@ test("defaults to the deployed Tapproved contract on NEAR testnet", async () => 
   assert.equal(Buffer.from(capture.request.params.args_base64, "base64").toString(), "{}");
 });
 
-test("allows an explicit contract override and preserves null active payment", async () => {
+test("accepts only explicit canonical contract/network configuration", async () => {
   const capture = {};
   const result = await getActivePayment({
-    env: { NEAR_CONTRACT_ID: "demo.testnet" },
+    env: {
+      NEAR_NETWORK: "testnet",
+      NEAR_CONTRACT_ID: "manextech.testnet",
+      NEAR_SIGNER_ACCOUNT_ID: "manex-agent.testnet"
+    },
     fetchImpl: mockFetch(null, capture)
   });
   assert.equal(result, null);
-  assert.equal(capture.request.params.account_id, "demo.testnet");
+  assert.equal(capture.request.params.account_id, "manextech.testnet");
+  await assert.rejects(
+    getActivePayment({
+      env: { NEAR_NETWORK: "testnet", NEAR_CONTRACT_ID: "demo.testnet" },
+      fetchImpl: mockFetch(null)
+    }),
+    /NEAR_CONTRACT_ID must be manextech\.testnet/
+  );
 });
 
-test("rejects mainnet contract IDs and non-HTTPS RPC endpoints", async () => {
-  await assert.rejects(
-    callViewMethod("get_policy", {}, {
-      env: { NEAR_CONTRACT_ID: "example.near" },
-      fetchImpl: mockFetch({})
-    }),
-    /valid testnet account ID/
-  );
-  await assert.rejects(
-    callViewMethod("get_policy", {}, {
-      env: { NEAR_RPC_URL: "http://localhost:3030", NEAR_CONTRACT_ID: "demo.testnet" },
-      fetchImpl: mockFetch({})
-    }),
-    /must use HTTPS/
-  );
+test("rejects non-testnet network, noncanonical contract, noncanonical signer and non-HTTPS RPC", async () => {
+  const invalidConfigurations = [
+    [{ NEAR_NETWORK: "mainnet" }, /NEAR_NETWORK must be testnet/],
+    [{ NEAR_CONTRACT_ID: "example.near" }, /NEAR_CONTRACT_ID must be manextech\.testnet/],
+    [{ NEAR_SIGNER_ACCOUNT_ID: "other.testnet" }, /NEAR_SIGNER_ACCOUNT_ID must be manex-agent\.testnet/],
+    [{ NEAR_RPC_URL: "http://localhost:3030" }, /NEAR_RPC_URL must use HTTPS/]
+  ];
+  for (const [overrides, expected] of invalidConfigurations) {
+    await assert.rejects(
+      callViewMethod("get_policy", {}, {
+        env: { ...overrides },
+        fetchImpl: mockFetch({})
+      }),
+      expected
+    );
+  }
 });
 
 test("surfaces RPC errors", async () => {
   await assert.rejects(
     callViewMethod("get_policy", {}, {
-      env: { NEAR_CONTRACT_ID: "demo.testnet" },
+      env: {},
       fetchImpl: async () => ({
         ok: true, status: 200,
         json: async () => ({ error: { message: "contract not found" } })
