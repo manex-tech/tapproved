@@ -59,7 +59,7 @@ function createOperationStore() {
 }
 
 function dependencies(overrides = {}) {
-  const calls = { reads: 0, connects: 0, requests: 0, submits: 0 };
+  const calls = { reads: 0, chainReads: 0, connects: 0, requests: 0, submits: 0 };
   const serialBridge = {
     async connect() { calls.connects += 1; },
     async requestApproval(payment) {
@@ -82,6 +82,10 @@ function dependencies(overrides = {}) {
     getActivePayment: async () => {
       calls.reads += 1;
       return pendingPayment;
+    },
+    getLatestBlockTimestampNs: async () => {
+      calls.chainReads += 1;
+      return "1793519000000000000";
     },
     serialBridge,
     approvalSigner,
@@ -121,7 +125,7 @@ test("sends only the active contract-pending payment and submits the device sign
     transaction_hash: "approval-transaction",
     payment: { ...pendingPayment, status: "processing" }
   });
-  assert.deepEqual(calls, { reads: 1, connects: 1, requests: 1, submits: 1 });
+  assert.deepEqual(calls, { reads: 1, chainReads: 2, connects: 1, requests: 1, submits: 1 });
 });
 
 test("does not retry after a device approval failure", async () => {
@@ -227,4 +231,76 @@ test("permits a new approval cycle after a known pre-submit signature rejection"
   assert.equal(confirmed.state, "confirmed");
   assert.equal(confirmed.attempt_count, 2);
   assert.equal(signerCalls, 2);
+});
+
+test("rejects an already expired payment using finalized chain time before connecting to hardware", async () => {
+  const { processor, calls } = dependencies({
+    getLatestBlockTimestampNs: async () => {
+      calls.chainReads += 1;
+      return "1793519712345678902";
+    }
+  });
+  await assert.rejects(processor(), (error) => error.code === "payment_expired");
+  assert.equal(calls.chainReads, 1);
+  assert.equal(calls.connects, 0);
+  assert.equal(calls.requests, 0);
+  assert.equal(calls.submits, 0);
+});
+
+test("fails closed on malformed payment context before connecting to hardware", async () => {
+  const { processor, calls } = dependencies({
+    getActivePayment: async () => ({ ...pendingPayment, expires_at_ns: "01793519712345678901" })
+  });
+  await assert.rejects(processor(), (error) => error.code === "invalid_payment_context");
+  assert.equal(calls.chainReads, 0);
+  assert.equal(calls.connects, 0);
+  assert.equal(calls.requests, 0);
+});
+
+test("fails closed when finalized chain time cannot be obtained", async () => {
+  const { processor, calls } = dependencies({
+    getLatestBlockTimestampNs: async () => {
+      calls.chainReads += 1;
+      throw new Error("RPC unavailable");
+    }
+  });
+  await assert.rejects(processor(), (error) => error.code === "finalized_chain_time_unavailable");
+  assert.equal(calls.connects, 0);
+  assert.equal(calls.requests, 0);
+  assert.equal(calls.submits, 0);
+});
+
+test("rechecks expiry after the physical signature and does not submit a stale approval", async () => {
+  let chainReads = 0;
+  let submissions = 0;
+  const { processor, operationStore } = dependencies({
+    getActivePayment: async () => ({ ...pendingPayment, expires_at_ns: "1793519712345678901" }),
+    getLatestBlockTimestampNs: async () => {
+      chainReads += 1;
+      return chainReads === 1 ? "1793519712345678901" : "1793519712345678902";
+    },
+    approvalSigner: {
+      async approveSpend() {
+        submissions += 1;
+        return { transaction_hash: "must-not-submit" };
+      }
+    }
+  });
+  await assert.rejects(processor(), (error) => error.code === "payment_expired");
+  assert.equal(chainReads, 2);
+  assert.equal(submissions, 0);
+  assert.equal(await operationStore.getOperation("manex-agent.testnet", "45", "approval"), null);
+});
+
+test("allows approval at exact expiry equality because the contract expires only after it", async () => {
+  const { processor, calls } = dependencies({
+    getActivePayment: async () => ({ ...pendingPayment, expires_at_ns: "1793519000000000000" }),
+    getLatestBlockTimestampNs: async () => {
+      calls.chainReads += 1;
+      return "1793519000000000000";
+    }
+  });
+  const result = await processor();
+  assert.equal(result.state, "submitted");
+  assert.equal(calls.submits, 1);
 });
