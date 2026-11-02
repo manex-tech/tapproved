@@ -47,7 +47,7 @@ export function createPaymentExpiryMonitor(options = {}) {
       intervalMs > MAX_EXPIRY_MONITOR_INTERVAL_MS) {
     throw new RangeError("expiry monitor interval is outside the allowed range");
   }
-  const onResult = options.onResult ?? (() => {});
+  const rpcEnv = {\n    NEAR_CONTRACT_ID: CANONICAL_CONTRACT_ID,\n    ...(env.NEAR_RPC_URL ? { NEAR_RPC_URL: env.NEAR_RPC_URL } : {})\n  };\n  const onResult = options.onResult ?? (() => {});
   const onError = options.onError ?? (() => {});
   let running = null;
   let timer = null;
