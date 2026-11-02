@@ -399,8 +399,8 @@ impl Tapproved {
 fn emit_payment_event(event: &str, payment: &Payment, approval_method: Option<&str>) {
     let mut data = near_sdk::serde_json::json!({
         "payment_id": U64(payment.id),
-        "agent_id": payment.agent_id,
-        "recipient_id": payment.recipient_id,
+        "agent_id": &payment.agent_id,
+        "recipient_id": &payment.recipient_id,
         "amount_yocto": U128(payment.amount_yocto),
         "nonce": U64(payment.nonce),
         "created_at_ns": U64(payment.created_at_ns),
@@ -857,6 +857,33 @@ mod tests {
         assert_eq!(json["expires_at_ns"], "1793520012345678901");
         assert_eq!(json["id"], "42");
         assert_eq!(json["nonce"], "42");
+    }
+
+    #[test]
+    fn payment_events_use_nep297_envelope_and_string_safe_integers() {
+        use near_sdk::test_utils::get_logs;
+        let payment = Payment {
+            id: 42,
+            agent_id: account("agent.testnet"),
+            recipient_id: account("merchant.testnet"),
+            amount_yocto: 123456789012345678901234567890,
+            nonce: 42,
+            created_at_ns: 1_793_519_712_345_678_901,
+            expires_at_ns: 1_793_520_012_345_678_901,
+            status: PaymentStatus::Pending,
+            hardware_approved: false,
+        };
+        emit_payment_event("payment_requested", &payment, None);
+        let logs = get_logs();
+        assert_eq!(logs.len(), 1);
+        let line = logs[0].strip_prefix("EVENT_JSON:").expect("NEP-297 event prefix");
+        let event: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(line).unwrap();
+        assert_eq!(event["standard"], "tapproved");
+        assert_eq!(event["version"], "1.0.0");
+        assert_eq!(event["event"], "payment_requested");
+        assert_eq!(event["data"][0]["payment_id"], "42");
+        assert_eq!(event["data"][0]["amount_yocto"], "123456789012345678901234567890");
+        assert_eq!(event["data"][0]["created_at_ns"], "1793519712345678901");
     }
 
     #[test]
