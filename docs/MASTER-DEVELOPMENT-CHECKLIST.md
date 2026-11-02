@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last verified source revision:** `a3ffdc562fbdaec2df3b2d66f839583697de2016` (2026-11-02)  
+**Last inspected implementation revision:** `41aafbfd09fe08fecc243d5fc72f98a313966968` (2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -74,7 +74,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 - [x] **C7.** Implement ESP32 serial communication. PR #35 adds bounded newline-delimited USB serial transport, one in-flight approval, timeout/disconnect handling, response-shape validation, and the ESP32 frame parser. CI run [41476447728](https://github.com/manex-tech/tapproved/actions/runs/41476447728) passed Node tests, Rust contract tests/Wasm build and ESP32 firmware build.
 - [x] **C8.** Submit hardware signatures to the contract. PR #38 adds an authenticated one-cycle processor, separate `approve_spend`-only FunctionCall signer, on-chain device-key matching, canonical v1 local Ed25519 verification, pre-submit pending-payment recheck, and post-submit status read. CI run [41479361939](https://github.com/manex-tech/tapproved/actions/runs/41479361939) passed Node, Rust contract/Wasm and ESP32 firmware jobs. **Operational dependency:** owner must provision the separate approval FunctionCall key before the endpoint can be enabled in a live relay.
 - [x] **C9.** Track transaction and payment status. PR #40 adds authenticated `GET /v1/transactions/:hash`, canonical signer/contract/method validation, explicit NEAR finality selection, receipt outcomes, gas/tokens burnt and logs. It omits raw transaction arguments/signatures and returns 202 until all receipts reach `FINAL`. CI run [41483795966](https://github.com/manex-tech/tapproved/actions/runs/41483795966) passed Node, Rust contract/Wasm and ESP32 firmware jobs.
-- [ ] **C10.** Monitor payment expiry.
+- [ ] **C10.** Monitor payment expiry. Add a background keeper that compares the active payment expiry with finalized NEAR block time, then calls permissionless `expire_payment` through a separate FunctionCall key restricted to that method only. Confirm the contract reports `expired`, suppress overlapping polls and never blindly retry an ambiguous submission. Verify with unit tests and CI before marking complete. Restart-safe reconciliation remains C11.
 - [ ] **C11.** Handle interruption and failure recovery.
 - [ ] **C12.** Implement structured logs and error handling.
 - [ ] **C13.** Add automated integration tests.
