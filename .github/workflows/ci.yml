@@ -65,6 +65,8 @@ jobs:
         run: pip install platformio==6.1.18
       - name: Test exact yoctoNEAR display formatting
         run: g++ -std=c++17 -Wall -Wextra -Werror -Ifirmware/include firmware/test/amount_format_test.cpp -o /tmp/tapproved-amount-format-test && /tmp/tapproved-amount-format-test
+      - name: Test fresh debounced physical approval state machine
+        run: g++ -std=c++17 -Wall -Wextra -Werror -Ifirmware/include firmware/test/button_approval_test.cpp -o /tmp/tapproved-button-approval-test && /tmp/tapproved-button-approval-test
       - name: Build ESP32 firmware
         working-directory: firmware
         run: |
