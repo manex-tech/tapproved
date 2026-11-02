@@ -3,6 +3,8 @@ import { pathToFileURL } from "node:url";
 import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
 import { createNearAgentSigner } from "./near-signer.js";
+import { createSerialBridge } from "./serial.js";
+import { createHardwareApprovalService } from "./hardware-approval.js";
 import {
   IdempotencyConflictError,
   IdempotencyStoreError,
@@ -83,6 +85,7 @@ export function createRelayServer(options = {}) {
   const submitPayment = options.submitPayment;
   const readActivePayment = options.getActivePayment ?? getActivePayment;
   const readPayment = options.getPayment ?? getPayment;
+  const approveHardwarePayment = options.approveHardwarePayment;
 
   return createServer(async (request, response) => {
     let pathname;
@@ -196,6 +199,36 @@ export function createRelayServer(options = {}) {
       return;
     }
 
+    const hardwareApprovalMatch = request.method === "POST"
+      ? pathname.match(/^\\/v1\\/payments\\/([0-9]+)\\/approve$/)
+      : null;
+    if (hardwareApprovalMatch) {
+      if (!authenticate(request)) {
+        send(response, 401, { error: "unauthorized" }, { "www-authenticate": "Bearer" });
+        return;
+      }
+      if (!approveHardwarePayment) {
+        send(response, 503, { error: "hardware_approval_not_configured" });
+        return;
+      }
+      if (Number(request.headers["content-length"] ?? "0") > 0 || request.headers["transfer-encoding"]) {
+        send(response, 400, { error: "request_body_not_allowed" });
+        return;
+      }
+      try {
+        const result = await approveHardwarePayment(hardwareApprovalMatch[1]);
+        const status = result.outcome === "unknown" || result.payment?.status === "processing" ? 202 : 200;
+        send(response, status, result);
+      } catch (error) {
+        const status = Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599
+          ? error.status
+          : 502;
+        const code = typeof error?.code === "string" ? error.code : "hardware_approval_failed";
+        send(response, status, { error: code });
+      }
+      return;
+    }
+
     const paymentMatch = request.method === "GET"
       ? pathname.match(/^\/v1\/payments\/([0-9]+)$/)
       : null;
@@ -262,16 +295,41 @@ async function startRelay() {
   const storePath = process.env.TAPPROVED_IDEMPOTENCY_PATH ?? ".tapproved/idempotency.json";
   const idempotencyStore = new JsonIdempotencyStore(storePath);
   let submitPayment;
+  let approveHardwarePayment;
+  let signer;
+  let serialBridge;
 
   try {
-    const signer = await createNearAgentSigner();
+    signer = await createNearAgentSigner();
     submitPayment = signer.requestSpend;
     console.log("Restricted NEAR agent signer verified for manex-agent.testnet.");
   } catch (error) {
     console.error(`NEAR agent signer unavailable; payment submissions disabled: ${error.message}`);
   }
 
-  const server = createRelayServer({ idempotencyStore, submitPayment });
+  if (process.env.SERIAL_PORT) {
+    try {
+      serialBridge = createSerialBridge();
+      await serialBridge.connect();
+      if (signer) {
+        const hardwareApproval = createHardwareApprovalService({
+          serialBridge,
+          approveSpend: signer.approveSpend
+        });
+        approveHardwarePayment = hardwareApproval.approvePayment;
+      }
+      console.log("ESP32 USB serial bridge connected.");
+    } catch (error) {
+      console.error(`ESP32 serial bridge unavailable; hardware approvals disabled: ${error.message}`);
+      await serialBridge?.disconnect().catch(() => {});
+      serialBridge = null;
+    }
+  }
+
+  const server = createRelayServer({ idempotencyStore, submitPayment, approveHardwarePayment });
+  server.on("close", () => {
+    serialBridge?.disconnect().catch(() => {});
+  });
   server.listen(port, () => {
     console.log(`Tapproved testnet relay listening on port ${port}`);
   });
