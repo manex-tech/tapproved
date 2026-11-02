@@ -204,7 +204,7 @@ export async function createNearAgentSigner(options = {}) {
         recipient_id: payment.recipient_id,
         amount_yocto: payment.amount_yocto
       },
-      gas: sdk.teraToGas("30"),
+      gas: sdk.teraToGas(REQUEST_GAS_TGAS),
       deposit: 0n,
       waitUntil: "FINAL"
     });
