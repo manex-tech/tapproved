@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last inspected implementation revision:** `9f4b521d3611c25edcfd0e12e5b0087a98973bf9` (C11 merge, 2026-11-02)  
+**Last inspected implementation revision:** `aa31efe8d50f94d397bee6f6fcef739bcfc204a0` (C12 merge, 2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -22,7 +22,7 @@
 
 ## Current checkpoint
 
-**Active task: C12 structured logs and error handling.**
+**Active task: C13 automated integration tests.**
 
 The disposable B10 lab firmware branch was merged as PR #26, but the lab account is no longer the target architecture. Development is consolidated around the canonical Testnet contract `manextech.testnet` and registered agent `manex-agent.testnet`. Do not initialize, deploy over, or transfer funds from the canonical contract during implementation. The existing deployed contract's storage-layout compatibility must be assessed before any final redeployment decision.
 
@@ -35,6 +35,8 @@ PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable i
 C10 is complete and merged in PR #41. CI run [41489165448](https://github.com/manex-tech/tapproved/actions/runs/41489165448) passed Node tests, Rust contract tests/Wasm build and ESP32 firmware build. The expiry keeper remains disabled in a live relay until the owner provisions the separate `expire_payment`-only FunctionCall key.
 
 C11 is complete and merged in [PR #42](https://github.com/manex-tech/tapproved/pull/42) as `9f4b521d3611c25edcfd0e12e5b0087a98973bf9`. CI run [41494552737](https://github.com/manex-tech/tapproved/actions/runs/41494552737) passed the full Node test/syntax job, Rust contract tests and Wasm build, and ESP32 firmware build. Approval and expiry operation attempts are durably journaled before broadcast and reconciled against canonical `get_payment` state after restart. The authenticated `POST /v1/recovery/reconcile` endpoint is read-only with respect to chain state and only repairs the local journal. Ambiguous transactions are never automatically resubmitted. Interrupted payment-request records remain for manual review because the contract does not persist the HTTP idempotency key, so recipient/amount equality cannot prove attribution.
+
+C12 is complete and merged in [PR #43](https://github.com/manex-tech/tapproved/pull/43) as `aa31efe8d50f94d397bee6f6fcef739bcfc204a0`. CI run [41499739171](https://github.com/manex-tech/tapproved/actions/runs/41499739171) passed all three jobs: 112 Node tests, Rust contract tests and Wasm build, and ESP32 firmware build. The relay now emits structured JSON lifecycle events, returns an `x-request-id` correlation header, logs allowlisted route/status/duration metadata, sanitizes error metadata and suppresses internal validation messages. Secrets, signatures, request bodies, query strings and raw exception details are excluded from logs. Logger failures cannot interrupt application control flow.
 
 ## Phase A: Repository consistency and documentation
 
@@ -80,7 +82,7 @@ C11 is complete and merged in [PR #42](https://github.com/manex-tech/tapproved/p
 - [x] **C9.** Track transaction and payment status. PR #40 adds authenticated `GET /v1/transactions/:hash`, canonical signer/contract/method validation, explicit NEAR finality selection, receipt outcomes, gas/tokens burnt and logs. It omits raw transaction arguments/signatures and returns 202 until all receipts reach `FINAL`. CI run [41483795966](https://github.com/manex-tech/tapproved/actions/runs/41483795966) passed Node, Rust contract/Wasm and ESP32 firmware jobs.
 - [x] **C10.** Monitor payment expiry. PR #41 adds a background keeper that compares the active payment expiry with finalized NEAR block time, then calls permissionless `expire_payment` through a separate FunctionCall key restricted to that method only. It confirms the contract reports `expired`, suppresses overlapping polls and never blindly retries an ambiguous submission within the same process. CI run [41489165448](https://github.com/manex-tech/tapproved/actions/runs/41489165448) passed Node tests, Rust contract tests/Wasm build and ESP32 firmware build.
 - [x] **C11.** Handle interruption and failure recovery. PR #42 persists approval/expiry operation markers before broadcast, reconciles interrupted operations from canonical `get_payment` state on startup and periodically, and exposes authenticated read-only `POST /v1/recovery/reconcile`. Known typed pre-submit hardware/signature rejections may be retried; ambiguous submissions are never automatically resubmitted. Interrupted request records remain unresolved for manual review because the contract does not store the HTTP idempotency key and recipient/amount equality cannot prove attribution. CI run [41494552737](https://github.com/manex-tech/tapproved/actions/runs/41494552737) passed Node tests, Rust contract tests/Wasm build and ESP32 firmware build.
-- [ ] **C12.** Implement structured logs and error handling.
+- [x] **C12.** Implement structured logs and error handling. PR #43 adds an allowlisted JSON logger, request correlation IDs, safe route templates, structured HTTP outcome events, sanitized startup/monitor error metadata and stable client validation errors. Tests cover redaction, error serialization, logger failure isolation, correlation headers and route/query privacy.
 - [ ] **C13.** Add automated integration tests.
 - [x] Implement application-level request idempotency keys so transport retries do not create duplicate logical payments. PR #28 provides a durable single-process journal with restart persistence, conflict detection and fail-closed uncertain states; multi-instance deployments still require a shared transactional store.
 
@@ -194,3 +196,4 @@ Update this section after each task with the date, commit/PR, tests run, evidenc
 | 2026-11-02 | C9 transaction and payment status | PR #40 merged as `a3ffdc562fbdaec2df3b2d66f839583697de2016`; CI run [41483795966](https://github.com/manex-tech/tapproved/actions/runs/41483795966) passed Node integration tests, Rust contract tests/Wasm build and canonical ESP32 firmware build. Added authenticated transaction finality and receipt status reads. |
 | 2026-11-02 | C10 payment expiry monitoring | PR #41 merged as `07945758afe0bfa8cb78dbdbb1ff40cb534c0af5`; CI run [41489165448](https://github.com/manex-tech/tapproved/actions/runs/41489165448) passed Node tests, Rust contract tests/Wasm build and ESP32 firmware build. Added finalized-block-time monitoring and an isolated `expire_payment`-only FunctionCall signer. |
 | 2026-11-02 | C11 interruption and failure recovery | PR #42 merged as `9f4b521d3611c25edcfd0e12e5b0087a98973bf9`; CI run [41494552737](https://github.com/manex-tech/tapproved/actions/runs/41494552737) passed Node tests, Rust contract tests/Wasm build and ESP32 firmware build. Added durable approval/expiry operation journaling, restart reconciliation, authenticated read-only manual reconciliation, and manual-review handling for unattributed interrupted payment requests. |
+| 2026-11-02 | C12 structured logs and error handling | PR #43 merged as `aa31efe8d50f94d397bee6f6fcef739bcfc204a0`; CI run [41499739171](https://github.com/manex-tech/tapproved/actions/runs/41499739171) passed 112 Node tests, Rust contract tests/Wasm build and ESP32 firmware build. Added allowlisted JSON logs, request correlation IDs, route redaction, sanitized errors and logger failure isolation. |
