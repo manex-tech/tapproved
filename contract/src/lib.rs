@@ -788,6 +788,35 @@ mod tests {
 
     #[test]
     fn owner_can_rotate_device_key() { let mut c = admin_contract("owner.testnet"); c.rotate_device_key(vec![9; 32]); assert_eq!(c.device_public_key, vec![9; 32]); }
+
+    #[test]
+    fn rotated_device_key_is_reported_and_new_key_can_approve_pending_payment() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        context_at("owner.testnet", "tapproved.testnet", FIXTURE_NOW);
+        c.rotate_device_key(decode_hex(VECTOR_PUBLIC_KEY));
+
+        assert_eq!(c.get_policy().device_public_key, decode_hex(VECTOR_PUBLIC_KEY));
+        assert_eq!(c.get_payment(42).unwrap().status, PaymentStatus::Pending);
+        let day = FIXTURE_NOW / NANOS_PER_DAY;
+        assert_eq!(c.get_daily_usage(day).reserved_yocto.0, FIXTURE_AMOUNT);
+
+        context_at("relayer.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let _promise = c.approve_spend(42, decode_hex(VECTOR_SIGNATURE));
+        let payment = c.get_payment(42).unwrap();
+        assert_eq!(payment.status, PaymentStatus::Processing);
+        assert!(payment.hardware_approved);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid hardware approval signature")]
+    fn previous_device_key_signature_is_rejected_after_rotation() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        context_at("owner.testnet", "tapproved.testnet", FIXTURE_NOW);
+        c.rotate_device_key(decode_hex(VECTOR_PUBLIC_KEY));
+
+        context_at("relayer.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+    }
     #[test]
     #[should_panic(expected = "only the owner may call this method")]
     fn non_owner_cannot_rotate_device_key() { let mut c = admin_contract("owner.testnet"); set_predecessor("attacker.testnet"); c.rotate_device_key(vec![9; 32]); }
