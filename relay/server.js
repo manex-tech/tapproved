@@ -4,6 +4,7 @@ import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy, getTransa
 import { createAgentAuthenticator } from "./auth.js";
 import { createNearAgentSigner, createNearApprovalSigner, createNearExpirySigner } from "./near-signer.js";
 import { createPaymentExpiryMonitor, readExpiryMonitorInterval } from "./expiry-service.js";
+import { createRecoveryService, readRecoveryInterval } from "./recovery-service.js";
 import { createSerialBridge } from "./serial.js";
 import { createApprovalProcessor } from "./approval-service.js";
 import {
@@ -131,6 +132,7 @@ export function createRelayServer(options = {}) {
   const idempotencyStore = options.idempotencyStore;
   const submitPayment = options.submitPayment;
   const processHardwareApproval = options.processHardwareApproval;
+  const reconcileRecovery = options.reconcileRecovery;
   const readActivePayment = options.getActivePayment ?? getActivePayment;
   const readPayment = options.getPayment ?? getPayment;
   const readTransactionStatus = options.getTransactionStatus ?? getTransactionStatus;
@@ -272,6 +274,23 @@ export function createRelayServer(options = {}) {
       return;
     }
 
+    if (request.method === "POST" && pathname === "/v1/recovery/reconcile") {
+      if (!authenticate(request)) {
+        send(response, 401, { error: "unauthorized" }, { "www-authenticate": "Bearer" });
+        return;
+      }
+      if (typeof reconcileRecovery !== "function") {
+        send(response, 503, { error: "recovery_not_configured" });
+        return;
+      }
+      try {
+        send(response, 200, await reconcileRecovery());
+      } catch {
+        send(response, 502, { error: "recovery_reconciliation_failed" });
+      }
+      return;
+    }
+
     const transactionMatch = request.method === "GET"
       ? pathname.match(/^\/v1\/transactions\/([^/]+)$/)
       : null;
@@ -395,10 +414,11 @@ async function startRelay() {
   let processHardwareApproval;
   let serialBridge;
   let expiryMonitor;
+  let recoveryService;
   try {
     const approvalSigner = await createNearApprovalSigner();
     serialBridge = createSerialBridge();
-    processHardwareApproval = createApprovalProcessor({ approvalSigner, serialBridge });
+    processHardwareApproval = createApprovalProcessor({ approvalSigner, serialBridge, operationStore: idempotencyStore });
     console.log("Hardware-approval signer verified for approve_spend.");
   } catch (error) {
     console.error(`Hardware approval unavailable; device approval submission disabled: ${error.message}`);
@@ -408,6 +428,7 @@ async function startRelay() {
     const expirySigner = await createNearExpirySigner();
     expiryMonitor = createPaymentExpiryMonitor({
       expirySigner,
+      operationStore: idempotencyStore,
       intervalMs: readExpiryMonitorInterval(),
       onResult: (result) => {
         if (["expired", "submitted_unconfirmed"].includes(result?.state)) {
@@ -424,10 +445,37 @@ async function startRelay() {
     console.error(`Payment expiry monitor unavailable; automatic expiry calls disabled: ${error.message}`);
   }
 
-  const server = createRelayServer({ idempotencyStore, submitPayment, processHardwareApproval });
+  try {
+    recoveryService = createRecoveryService({
+      store: idempotencyStore,
+      intervalMs: readRecoveryInterval(),
+      onResult: (result) => {
+        if (result?.state === "manual_review_required") {
+          console.error(
+            `Payment recovery needs review: ${result.unresolved_payment_requests} request(s), ${result.unresolved_operations} operation(s).`
+          );
+        }
+      },
+      onError: () => {
+        console.error("Payment recovery poll failed; no transaction is automatically resubmitted.");
+      }
+    });
+    recoveryService.start();
+    console.log("Contract-state recovery monitor enabled.");
+  } catch (error) {
+    console.error(`Payment recovery monitor unavailable: ${error.message}`);
+  }
+
+  const server = createRelayServer({
+    idempotencyStore,
+    submitPayment,
+    processHardwareApproval,
+    reconcileRecovery: recoveryService?.reconcileOnce
+  });
   server.on("close", () => {
     if (serialBridge) void serialBridge.disconnect();
     if (expiryMonitor) expiryMonitor.stop();
+    if (recoveryService) recoveryService.stop();
   });
   server.listen(port, () => {
     console.log(`Tapproved testnet relay listening on port ${port}`);
