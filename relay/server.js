@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
-import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy } from "./near-rpc.js";
+import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy, getTransactionStatus, isValidTransactionHash, TransactionNotFoundError, TransactionQueryValidationError, TransactionWaitTimeoutError } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
 import { createNearAgentSigner, createNearApprovalSigner } from "./near-signer.js";
 import { createSerialBridge } from "./serial.js";
@@ -17,6 +17,52 @@ import {
 const MAX_REQUEST_BODY_BYTES = 4096;
 const DEFAULT_AGENT_ID = "manex-agent.testnet";
 const PAYMENT_STATUSES = new Set(["pending", "approved", "processing", "paid", "failed", "expired", "cancelled"]);
+
+function executionStatusKind(status) {
+  if (status === "NotStarted") return "not_started";
+  if (status === "Started") return "in_progress";
+  if (status && typeof status === "object" && status.Failure !== undefined) return "failed";
+  if (status && typeof status === "object" &&
+      (status.SuccessValue !== undefined || status.SuccessReceiptId !== undefined)) return "success";
+  return "unknown";
+}
+
+function transactionStatusResponse(result) {
+  const receipts = Array.isArray(result.receipts_outcome) ? result.receipts_outcome : [];
+  const transactionOutcome = result.transaction_outcome?.outcome;
+  return {
+    transaction_hash: result.transaction.hash,
+    contract_id: DEFAULT_CONTRACT_ID,
+    signer_id: result.transaction.signer_id,
+    receiver_id: result.transaction.receiver_id,
+    method_names: Array.isArray(result.transaction.actions)
+      ? result.transaction.actions.flatMap((action) =>
+        action?.FunctionCall?.method_name ? [action.FunctionCall.method_name] : [])
+      : [],
+    final_execution_status: result.final_execution_status ?? "NONE",
+    execution_state: executionStatusKind(result.status),
+    transaction_outcome: transactionOutcome ? {
+      block_hash: result.transaction_outcome.block_hash ?? null,
+      gas_burnt: String(transactionOutcome.gas_burnt ?? "0"),
+      tokens_burnt: String(transactionOutcome.tokens_burnt ?? "0"),
+      status: executionStatusKind(transactionOutcome.status),
+      logs: Array.isArray(transactionOutcome.logs) ? transactionOutcome.logs : [],
+      receipt_ids: Array.isArray(transactionOutcome.receipt_ids) ? transactionOutcome.receipt_ids : []
+    } : null,
+    receipts: receipts.map((receipt) => ({
+      receipt_id: receipt.id,
+      block_hash: receipt.block_hash ?? null,
+      executor_id: receipt.outcome?.executor_id ?? null,
+      gas_burnt: String(receipt.outcome?.gas_burnt ?? "0"),
+      tokens_burnt: String(receipt.outcome?.tokens_burnt ?? "0"),
+      status: executionStatusKind(receipt.outcome?.status),
+      receipt_ids: Array.isArray(receipt.outcome?.receipt_ids) ? receipt.outcome.receipt_ids : [],
+      logs: Array.isArray(receipt.outcome?.logs) ? receipt.outcome.logs : []
+    })),
+    receipt_count: receipts.length,
+    receipts_finalized: result.final_execution_status === "FINAL"
+  };
+}
 
 class HttpError extends Error {
   constructor(status, code) {
@@ -86,11 +132,14 @@ export function createRelayServer(options = {}) {
   const processHardwareApproval = options.processHardwareApproval;
   const readActivePayment = options.getActivePayment ?? getActivePayment;
   const readPayment = options.getPayment ?? getPayment;
+  const readTransactionStatus = options.getTransactionStatus ?? getTransactionStatus;
 
   return createServer(async (request, response) => {
     let pathname;
+    let requestUrl;
     try {
-      pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+      requestUrl = new URL(request.url ?? "/", "http://localhost");
+      pathname = requestUrl.pathname;
     } catch {
       send(response, 400, { error: "invalid_request_url" });
       return;
@@ -218,6 +267,51 @@ export function createRelayServer(options = {}) {
           : "hardware_approval_failed";
         const status = code === "approval_already_in_progress" ? 409 : 502;
         send(response, status, { error: code });
+      }
+      return;
+    }
+
+    const transactionMatch = request.method === "GET"
+      ? pathname.match(/^\/v1\/transactions\/([^/]+)$/)
+      : null;
+    if (transactionMatch) {
+      if (!authenticate(request)) {
+        send(response, 401, { error: "unauthorized" }, { "www-authenticate": "Bearer" });
+        return;
+      }
+      if (!isValidTransactionHash(transactionMatch[1])) {
+        send(response, 400, { error: "invalid_transaction_hash" });
+        return;
+      }
+      const waitUntil = requestUrl.searchParams.get("wait_until") ?? "NONE";
+      try {
+        const result = await readTransactionStatus(transactionMatch[1], {
+          env: {
+            NEAR_CONTRACT_ID: DEFAULT_CONTRACT_ID,
+            NEAR_SIGNER_ACCOUNT_ID: DEFAULT_AGENT_ID
+          },
+          waitUntil
+        });
+        const payload = transactionStatusResponse(result);
+        send(response, payload.receipts_finalized ? 200 : 202, payload);
+      } catch (error) {
+        if (error instanceof TransactionQueryValidationError) {
+          send(response, 400, { error: error.code });
+        } else if (error instanceof TransactionNotFoundError) {
+          send(response, 404, { error: error.code });
+        } else if (error instanceof TransactionWaitTimeoutError) {
+          send(response, 202, {
+            transaction_hash: transactionMatch[1],
+            final_execution_status: "UNKNOWN",
+            requested_wait_until: waitUntil,
+            execution_state: "in_progress",
+            receipts: [],
+            receipt_count: 0,
+            receipts_finalized: false
+          });
+        } else {
+          send(response, 502, { error: "near_rpc_failed" });
+        }
       }
       return;
     }
