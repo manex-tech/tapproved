@@ -34,6 +34,7 @@ pub enum PaymentStatus {
     Paid,
     Failed,
     Expired,
+    Cancelled,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Clone)]
@@ -183,7 +184,7 @@ impl Tapproved {
             env::panic_str("only pending or approved payments can be cancelled");
         }
         self.release_reservation(&payment);
-        self.payments[index].status = PaymentStatus::Expired;
+        self.payments[index].status = PaymentStatus::Cancelled;
         self.active_payment_id = None;
     }
 
@@ -524,7 +525,7 @@ mod tests {
         assert_eq!(c.get_daily_usage(0).reserved_yocto.0, 50);
         set_predecessor("owner.testnet"); c.cancel_payment(p.id.0);
         assert_eq!(c.active_payment_id, None);
-        assert_eq!(c.get_payment(p.id.0).unwrap().status, PaymentStatus::Expired);
+        assert_eq!(c.get_payment(p.id.0).unwrap().status, PaymentStatus::Cancelled);
         assert_eq!(c.get_daily_usage(0).reserved_yocto.0, 0);
     }
     #[test]
