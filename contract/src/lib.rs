@@ -1,10 +1,11 @@
 use near_sdk::json_types::{U128, U64};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize, Serialize};
-use near_sdk::{env, near_bindgen, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseResult};
+use near_sdk::{env, near_bindgen, AccountId, Gas, LookupMap, NearToken, PanicOnDefault, Promise, PromiseResult};
 
 const REQUEST_TTL_NS: u64 = 300_000_000_000;
 const NANOS_PER_DAY: u64 = 86_400_000_000_000;
+const MAX_RETAINED_PAYMENTS: u64 = 1_000;
 
 /// Persistent policy and payment authorization state.
 #[near_bindgen]
@@ -20,7 +21,9 @@ pub struct Tapproved {
     allowed_recipients: Vec<AccountId>,
     paused: bool,
     next_payment_id: u64,
-    payments: Vec<Payment>,
+    payments: LookupMap<u64, Payment>,
+    payment_count: u64,
+    oldest_retained_payment_id: u64,
     active_payment_id: Option<u64>,
     daily_usage: Vec<DailyUsage>,
 }
@@ -121,7 +124,9 @@ impl Tapproved {
             allowed_recipients,
             paused: false,
             next_payment_id: 1,
-            payments: Vec::new(),
+            payments: LookupMap::new(b"p"),
+            payment_count: 0,
+            oldest_retained_payment_id: 1,
             active_payment_id: None,
             daily_usage: Vec::new(),
         }
@@ -136,13 +141,12 @@ impl Tapproved {
     /// Cancel an active Pending or Approved payment and release its reservation.
     pub fn cancel_payment(&mut self, payment_id: u64) {
         self.assert_owner();
-        let index = self.active_index(payment_id);
-        let payment = self.payments[index].clone();
+        let payment = self.active_payment(payment_id);
         if payment.status != PaymentStatus::Pending && payment.status != PaymentStatus::Approved {
             env::panic_str("only pending or approved payments can be cancelled");
         }
         self.release_reservation(&payment);
-        self.payments[index].status = PaymentStatus::Cancelled;
+        self.store_payment(Payment { status: PaymentStatus::Cancelled, ..payment });
         self.active_payment_id = None;
     }
 
@@ -250,57 +254,80 @@ impl Tapproved {
             hardware_approved: false,
         };
         let view = payment_to_view(&payment);
-        self.payments.push(payment);
+        self.insert_payment(payment);
         self.active_payment_id = Some(id);
         view
     }
 
     /// Permissionless hardware approval. Signed bytes are reconstructed from stored state.
     pub fn approve_spend(&mut self, payment_id: u64, signature: Vec<u8>) -> Promise {
-        let index = self.active_index(payment_id);
-        let payment = self.payments[index].clone();
+        let payment = self.active_payment(payment_id);
         if payment.status != PaymentStatus::Pending { env::panic_str("payment is not pending hardware approval"); }
         if env::block_timestamp() > payment.expires_at_ns { env::panic_str("payment approval has expired"); }
         let sig: [u8; 64] = signature.as_slice().try_into().unwrap_or_else(|_| env::panic_str("signature must be 64 bytes"));
         let key: [u8; 32] = self.device_public_key.as_slice().try_into().unwrap_or_else(|_| env::panic_str("invalid stored device key"));
         let message = canonical_approval_message(&payment, &env::current_account_id(), &self.network_id);
         if !env::ed25519_verify(&sig, &message, &key) { env::panic_str("invalid hardware approval signature"); }
-        self.payments[index].hardware_approved = true;
-        self.payments[index].status = PaymentStatus::Processing;
+        self.store_payment(Payment { hardware_approved: true, status: PaymentStatus::Processing, ..payment.clone() });
         self.transfer_promise(payment)
     }
 
     /// Execute an auto-approved payment below the soft limit.
     pub fn execute_approved_spend(&mut self, payment_id: u64) -> Promise {
-        let index = self.active_index(payment_id);
-        let payment = self.payments[index].clone();
+        let payment = self.active_payment(payment_id);
         if payment.status != PaymentStatus::Approved || payment.amount_yocto > self.soft_limit_yocto {
             env::panic_str("payment is not eligible for automatic execution");
         }
         if env::block_timestamp() > payment.expires_at_ns { env::panic_str("payment has expired"); }
-        self.payments[index].status = PaymentStatus::Processing;
+        self.store_payment(Payment { status: PaymentStatus::Processing, ..payment.clone() });
         self.transfer_promise(payment)
     }
 
     #[private]
     pub fn on_transfer_result(&mut self, payment_id: u64) -> PaymentView {
-        let index = self.active_index(payment_id);
-        if self.payments[index].status != PaymentStatus::Processing { env::panic_str("payment is not processing"); }
-        let payment = self.payments[index].clone();
+        let payment = self.active_payment(payment_id);
+        if payment.status != PaymentStatus::Processing { env::panic_str("payment is not processing"); }
         match env::promise_result(0) {
-            PromiseResult::Successful(_) => self.payments[index].status = PaymentStatus::Paid,
+            PromiseResult::Successful(_) => self.store_payment(Payment { status: PaymentStatus::Paid, ..payment.clone() }),
             PromiseResult::Failed => {
                 self.release_reservation(&payment);
-                self.payments[index].status = PaymentStatus::Failed;
+                self.store_payment(Payment { status: PaymentStatus::Failed, ..payment.clone() });
             }
         }
         self.active_payment_id = None;
-        payment_to_view(&self.payments[index])
+        payment_to_view(&self.payments.get(&payment_id).unwrap())
     }
 
-    fn active_index(&self, payment_id: u64) -> usize {
+    fn active_payment(&self, payment_id: u64) -> Payment {
         if self.active_payment_id != Some(payment_id) { env::panic_str("payment is not active"); }
-        self.payments.iter().position(|p| p.id == payment_id).unwrap_or_else(|| env::panic_str("payment not found"))
+        self.payments.get(&payment_id).unwrap_or_else(|| env::panic_str("payment not found"))
+    }
+
+    fn store_payment(&mut self, payment: Payment) {
+        self.payments.insert(&payment.id, &payment);
+    }
+
+    /// Insert a payment after pruning the oldest terminal records when at capacity.
+    /// IDs are sequential, and a new request is impossible while an older payment is active.
+    fn insert_payment(&mut self, payment: Payment) {
+        while self.payment_count >= MAX_RETAINED_PAYMENTS {
+            let oldest_id = self.oldest_retained_payment_id;
+            match self.payments.get(&oldest_id) {
+                Some(oldest) if is_terminal(oldest.status) => {
+                    self.payments.remove(&oldest_id);
+                    self.payment_count -= 1;
+                    self.oldest_retained_payment_id = oldest_id.checked_add(1)
+                        .unwrap_or_else(|| env::panic_str("payment retention cursor overflow"));
+                }
+                Some(_) => env::panic_str("payment history is full; oldest payment is not terminal"),
+                None => {
+                    self.oldest_retained_payment_id = oldest_id.checked_add(1)
+                        .unwrap_or_else(|| env::panic_str("payment retention cursor overflow"));
+                }
+            }
+        }
+        self.store_payment(payment);
+        self.payment_count += 1;
     }
 
     fn release_reservation(&mut self, payment: &Payment) {
@@ -324,9 +351,7 @@ impl Tapproved {
     /// original UTC-day bucket, not from the caller's current day.
     pub fn expire_payment(&mut self, payment_id: u64) {
         let now = env::block_timestamp();
-        let index = self.payments.iter().position(|p| p.id == payment_id)
-            .unwrap_or_else(|| env::panic_str("payment not found"));
-        let payment = self.payments[index].clone();
+        let payment = self.payments.get(&payment_id).unwrap_or_else(|| env::panic_str("payment not found"));
         if self.active_payment_id != Some(payment_id) {
             env::panic_str("payment is not active");
         }
@@ -343,12 +368,12 @@ impl Tapproved {
         } else {
             env::panic_str("daily reservation record missing");
         }
-        self.payments[index].status = PaymentStatus::Expired;
+        self.store_payment(Payment { status: PaymentStatus::Expired, ..payment });
         self.active_payment_id = None;
     }
 
     pub fn get_payment(&self, payment_id: u64) -> Option<PaymentView> {
-        self.payments.iter().find(|p| p.id == payment_id).map(payment_to_view)
+        self.payments.get(&payment_id).as_ref().map(payment_to_view)
     }
 
     pub fn get_active_payment(&self) -> Option<PaymentView> {
@@ -360,6 +385,10 @@ impl Tapproved {
             .map(|entry| entry.reserved_yocto).unwrap_or(0);
         DailyUsageView { utc_day: U64(utc_day), reserved_yocto: U128(reserved), daily_limit_yocto: U128(self.daily_limit_yocto) }
     }
+}
+
+fn is_terminal(status: PaymentStatus) -> bool {
+    matches!(status, PaymentStatus::Paid | PaymentStatus::Failed | PaymentStatus::Expired | PaymentStatus::Cancelled)
 }
 
 /// Canonical Tapproved v1 approval payload. Integers use little-endian encoding.
@@ -548,7 +577,9 @@ mod tests {
         };
         c.next_payment_id = 43;
         c.daily_usage.push(DailyUsage { utc_day: FIXTURE_NOW / NANOS_PER_DAY, reserved_yocto: FIXTURE_AMOUNT });
-        c.payments.push(payment);
+        c.payments.insert(&42, &payment);
+        c.payment_count = 1;
+        c.oldest_retained_payment_id = 42;
         c.active_payment_id = Some(42);
         c
     }
@@ -632,8 +663,8 @@ mod tests {
     fn protocol_v1_vector_signature_is_accepted() {
         let mut c = fixture_contract(VECTOR_PUBLIC_KEY);
         let _promise = c.approve_spend(42, decode_hex(VECTOR_SIGNATURE));
-        assert_eq!(c.payments[0].status, PaymentStatus::Processing);
-        assert!(c.payments[0].hardware_approved);
+        assert_eq!(c.payments.get(&42).unwrap().status, PaymentStatus::Processing);
+        assert!(c.payments.get(&42).unwrap().hardware_approved);
     }
 
     #[test]
@@ -648,7 +679,7 @@ mod tests {
     #[should_panic(expected = "invalid hardware approval signature")]
     fn tampered_amount_invalidates_signature() {
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
-        c.payments[0].amount_yocto += 1;
+        { let mut payment = c.payments.get(&42).unwrap(); payment.amount_yocto += 1; c.store_payment(payment); }
         let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
     }
 
@@ -680,7 +711,7 @@ mod tests {
     #[should_panic(expected = "payment is not active")]
     fn replay_after_paid_payment_is_rejected() {
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
-        c.payments[0].status = PaymentStatus::Paid;
+        { let mut payment = c.payments.get(&42).unwrap(); payment.status = PaymentStatus::Paid; c.store_payment(payment); }
         c.active_payment_id = None;
         let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
     }
@@ -689,7 +720,7 @@ mod tests {
     #[should_panic(expected = "payment is not active")]
     fn replay_after_failed_payment_is_rejected() {
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
-        c.payments[0].status = PaymentStatus::Failed;
+        { let mut payment = c.payments.get(&42).unwrap(); payment.status = PaymentStatus::Failed; c.store_payment(payment); }
         c.active_payment_id = None;
         let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
     }
@@ -700,7 +731,7 @@ mod tests {
         use near_sdk::test_utils::testing_env_with_promise_results;
         use near_sdk::test_utils::VMContextBuilder;
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
-        c.payments[0].status = PaymentStatus::Processing;
+        { let mut payment = c.payments.get(&42).unwrap(); payment.status = PaymentStatus::Processing; c.store_payment(payment); }
         testing_env_with_promise_results(
             VMContextBuilder::new().current_account_id(account("tapproved.testnet"))
                 .predecessor_account_id(account("tapproved.testnet")).block_timestamp(FIXTURE_NOW).build(),
@@ -734,9 +765,45 @@ mod tests {
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
         context_at("caller.testnet", "tapproved.testnet", FIXTURE_EXPIRY + 1);
         c.expire_payment(42);
-        assert_eq!(c.payments[0].status, PaymentStatus::Expired);
+        assert_eq!(c.payments.get(&42).unwrap().status, PaymentStatus::Expired);
         assert_eq!(c.active_payment_id, None);
         assert_eq!(c.daily_usage[0].reserved_yocto, 0);
+    }
+
+    #[test]
+    fn payment_lookup_uses_id_key_and_returns_none_after_pruning() {
+        let mut c = request_contract(FIXTURE_NOW);
+        let payment = Payment {
+            id: 1, agent_id: account("agent.testnet"), recipient_id: account("merchant.testnet"),
+            amount_yocto: 5, nonce: 1, created_at_ns: FIXTURE_NOW, expires_at_ns: FIXTURE_EXPIRY,
+            status: PaymentStatus::Paid, hardware_approved: false,
+        };
+        c.insert_payment(payment);
+        assert_eq!(c.get_payment(1).unwrap().status, PaymentStatus::Paid);
+        c.oldest_retained_payment_id = 1;
+        c.payment_count = MAX_RETAINED_PAYMENTS;
+        c.insert_payment(Payment {
+            id: 2, agent_id: account("agent.testnet"), recipient_id: account("merchant.testnet"),
+            amount_yocto: 5, nonce: 2, created_at_ns: FIXTURE_NOW, expires_at_ns: FIXTURE_EXPIRY,
+            status: PaymentStatus::Pending, hardware_approved: false,
+        });
+        assert!(c.get_payment(1).is_none());
+        assert!(c.get_payment(2).is_some());
+        assert_eq!(c.payment_count, MAX_RETAINED_PAYMENTS);
+        assert_eq!(c.oldest_retained_payment_id, 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "payment history is full; oldest payment is not terminal")]
+    fn retention_never_prunes_nonterminal_payment() {
+        let mut c = request_contract(FIXTURE_NOW);
+        c.payment_count = MAX_RETAINED_PAYMENTS;
+        c.oldest_retained_payment_id = 1;
+        c.insert_payment(Payment {
+            id: 2, agent_id: account("agent.testnet"), recipient_id: account("merchant.testnet"),
+            amount_yocto: 5, nonce: 2, created_at_ns: FIXTURE_NOW, expires_at_ns: FIXTURE_EXPIRY,
+            status: PaymentStatus::Pending, hardware_approved: false,
+        });
     }
 
     #[test]
