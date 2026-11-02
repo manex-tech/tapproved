@@ -445,3 +445,36 @@ test("payment status endpoint rejects unsafe integer IDs and maps RPC failures",
     assert.equal((await failed.json()).error, "near_rpc_failed");
   });
 });
+
+
+test("payment status endpoint keeps approved and processing payments non-terminal", async () => {
+  for (const status of ["approved", "processing"]) {
+    const payment = { id: "30", agent_id: "manex-agent.testnet", status };
+    await withServer({
+      ...authOptions(),
+      getPayment: async () => payment
+    }, async (base) => {
+      const response = await fetch(`${base}/v1/payments/30`, {
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.approval_required, false);
+      assert.equal(body.terminal, false);
+      assert.equal(body.payment.status, status);
+    });
+  }
+});
+
+test("payment status endpoint rejects an unknown contract lifecycle status", async () => {
+  await withServer({
+    ...authOptions(),
+    getPayment: async () => ({ id: "31", agent_id: "manex-agent.testnet", status: "unknown" })
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/payments/31`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: "near_rpc_failed" });
+  });
+});
