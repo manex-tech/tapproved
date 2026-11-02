@@ -971,6 +971,66 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "invalid hardware approval signature")]
+    fn approval_signature_is_bound_to_payment_id() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        let mut payment = c.payments.get(&42).unwrap().clone();
+        payment.id = 43;
+        payment.nonce = 43;
+        c.payments.insert(43, payment);
+        c.active_payment_id = Some(43);
+        let _promise = c.approve_spend(43, decode_hex(ESP32_SIGNATURE));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid hardware approval signature")]
+    fn approval_signature_is_bound_to_recipient() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        let mut payment = c.payments.get(&42).unwrap().clone();
+        payment.recipient_id = account("other-merchant.testnet");
+        c.store_payment(payment);
+        let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid hardware approval signature")]
+    fn approval_signature_is_bound_to_nonce() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        let mut payment = c.payments.get(&42).unwrap().clone();
+        payment.nonce += 1;
+        c.store_payment(payment);
+        let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid hardware approval signature")]
+    fn approval_signature_is_bound_to_expiry() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        let mut payment = c.payments.get(&42).unwrap().clone();
+        payment.expires_at_ns += 1;
+        c.store_payment(payment);
+        let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+    }
+
+    #[test]
+    #[should_panic(expected = "payment is not pending hardware approval")]
+    fn repeated_hardware_approval_while_processing_is_rejected() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        let _first = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+        let _second = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+    }
+
+    #[test]
+    #[should_panic(expected = "payment is not eligible for automatic execution")]
+    fn repeated_automatic_execution_while_processing_is_rejected() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let payment = c.request_spend(account("merchant.testnet"), U128(5));
+        let _first = c.execute_approved_spend(payment.id.0);
+        let _second = c.execute_approved_spend(payment.id.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid hardware approval signature")]
     fn tampered_amount_invalidates_signature() {
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
         { let mut payment = c.payments.get(&42).unwrap().clone(); payment.amount_yocto += 1; c.store_payment(payment); }
