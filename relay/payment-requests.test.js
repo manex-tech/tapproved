@@ -176,14 +176,14 @@ test("migrates v1 journal and durably suppresses duplicate approval and expiry o
 });
 
 
-test("operation confirmation requires a contract state appropriate to the operation", async () => {
+test("operation confirmation requires an advanced or terminal contract state", async () => {
   await withStore(async (path) => {
     const store = new JsonIdempotencyStore(path);
     await store.beginOperation(agentId, "74", "approval");
     await store.beginOperation(agentId, "75", "expiry");
     await assert.rejects(
       store.confirmOperation(agentId, "74", "approval", "pending"),
-      /does not confirm/
+      /does not resolve/
     );
     await store.confirmOperation(agentId, "74", "approval", "processing");
     // A concurrently executed payment supersedes an expiry attempt safely.
