@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
@@ -128,7 +128,7 @@ export class JsonIdempotencyStore {
   async #persist() {
     const directory = dirname(this.#filePath);
     await mkdir(directory, { recursive: true });
-    const temporary = `${this.#filePath}.${process.pid}.${Date.now()}.tmp`;
+    const temporary = `${this.#filePath}.${process.pid}.${randomUUID()}.tmp`;
     const handle = await open(temporary, "wx", 0o600);
     try {
       await handle.writeFile(JSON.stringify({
@@ -214,22 +214,30 @@ export async function submitIdempotentPaymentRequest({
       typeof store.transition !== "function" || typeof submit !== "function") {
     throw new TypeError("store and submit adapter are required");
   }
-  const reservation = await store.reserve({ agentId, idempotencyKey, payment });
+  if (typeof agentId !== "string" || agentId.length < 2 || agentId.length > 64 ||
+      !ACCOUNT_ID.test(agentId)) {
+    throw new TypeError("configured agent ID must be a valid NEAR account ID");
+  }
+  const normalizedKey = validateIdempotencyKey(idempotencyKey);
+  const normalizedPayment = validatePaymentRequest(payment);
+  const reservation = await store.reserve({
+    agentId, idempotencyKey: normalizedKey, payment: normalizedPayment
+  });
   if (!reservation.created) {
     return { replayed: true, record: reservation.record };
   }
 
-  await store.transition(agentId, idempotencyKey, "submitting");
+  await store.transition(agentId, normalizedKey, "submitting");
   try {
-    const result = await submit(payment);
+    const result = await submit(normalizedPayment);
     const safeResult = {
       transaction_hash: typeof result?.transaction_hash === "string" ? result.transaction_hash : null,
       payment: result?.payment && typeof result.payment === "object" ? result.payment : null
     };
-    const record = await store.transition(agentId, idempotencyKey, "submitted", safeResult);
+    const record = await store.transition(agentId, normalizedKey, "submitted", safeResult);
     return { replayed: false, record };
   } catch (error) {
-    await store.transition(agentId, idempotencyKey, "uncertain", {
+    await store.transition(agentId, normalizedKey, "uncertain", {
       error_code: "submission_outcome_unknown"
     });
     throw error;
