@@ -1186,6 +1186,9 @@ mod tests {
     #[test]
     fn owner_can_reconcile_processing_payment_as_paid_after_verified_transfer() {
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        let mut payment = c.payments.get(&42).unwrap().clone();
+        payment.status = PaymentStatus::Processing;
+        c.store_payment(payment);
         context_at("owner.testnet", "tapproved.testnet", FIXTURE_NOW);
         let result = c.reconcile_processing_payment(42, true);
         assert_eq!(result.status, PaymentStatus::Paid);
@@ -1198,6 +1201,9 @@ mod tests {
     #[test]
     fn owner_can_reconcile_processing_payment_as_failed_after_verified_failure() {
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        let mut payment = c.payments.get(&42).unwrap().clone();
+        payment.status = PaymentStatus::Processing;
+        c.store_payment(payment);
         context_at("owner.testnet", "tapproved.testnet", FIXTURE_NOW);
         let result = c.reconcile_processing_payment(42, false);
         assert_eq!(result.status, PaymentStatus::Failed);
