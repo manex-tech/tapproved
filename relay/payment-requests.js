@@ -323,13 +323,9 @@ export class JsonIdempotencyStore {
   }
 
   async confirmOperation(agentId, paymentId, kind, observedStatus) {
-    const expected = kind === "expiry"
-      ? ["expired"]
-      : kind === "approval"
-        ? ["processing", "paid", "failed"]
-        : [];
-    if (!expected.includes(observedStatus)) {
-      throw new TypeError("observed contract status does not confirm this operation");
+    if (!["approval", "expiry"].includes(kind) ||
+        !["processing", "paid", "failed", "expired", "cancelled"].includes(observedStatus)) {
+      throw new TypeError("observed contract status does not resolve this operation");
     }
     return this.#exclusive(async () => {
       await this.#load();
