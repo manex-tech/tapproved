@@ -718,7 +718,7 @@ mod tests {
     #[should_panic(expected = "payment is not active")]
     fn replay_after_failed_payment_is_rejected() {
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
-        { let mut payment = c.payments.get(&42).unwrap(); payment.status = PaymentStatus::Failed; c.store_payment(payment); }
+        { let mut payment = c.payments.get(&42).unwrap().clone(); payment.status = PaymentStatus::Failed; c.store_payment(payment); }
         c.active_payment_id = None;
         let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
     }
@@ -729,7 +729,7 @@ mod tests {
         use near_sdk::test_utils::testing_env_with_promise_results;
         use near_sdk::test_utils::VMContextBuilder;
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
-        { let mut payment = c.payments.get(&42).unwrap(); payment.status = PaymentStatus::Processing; c.store_payment(payment); }
+        { let mut payment = c.payments.get(&42).unwrap().clone(); payment.status = PaymentStatus::Processing; c.store_payment(payment); }
         testing_env_with_promise_results(
             VMContextBuilder::new().current_account_id(account("tapproved.testnet"))
                 .predecessor_account_id(account("tapproved.testnet")).block_timestamp(FIXTURE_NOW).build(),
