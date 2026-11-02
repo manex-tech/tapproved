@@ -7,7 +7,9 @@
 inline bool formatYoctoNear(const char* amount, char* output, size_t output_size) {
   if (!amount || !*amount || !output || output_size == 0) return false;
   const size_t length = strlen(amount);
-  if (length > 39 || (length > 1 && amount[0] == '0')) return false;
+  constexpr char MAX_U128_DECIMAL[] = "340282366920938463463374607431768211455";
+  if (length > 39 || (length > 1 && amount[0] == '0') ||
+      (length == 39 && strcmp(amount, MAX_U128_DECIMAL) > 0)) return false;
   for (size_t i = 0; i < length; ++i) {
     if (amount[i] < '0' || amount[i] > '9') return false;
   }
