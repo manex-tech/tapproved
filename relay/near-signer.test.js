@@ -1,11 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { generateKeyPairSync, sign as signEd25519 } from "node:crypto";
+import { encodeApprovalMessage } from "./protocol.js";
 import {
   CANONICAL_AGENT_ID,
   CANONICAL_CONTRACT_ID,
+  APPROVE_SPEND_METHODS,
   MAX_SIGNER_ALLOWANCE_YOCTO,
   SignerConfigurationError,
   createNearAgentSigner,
+  createNearApprovalSigner,
   readSignerConfiguration,
   validateAgentFunctionCallKey
 } from "./near-signer.js";
@@ -20,10 +24,10 @@ const env = {
   NEAR_SIGNER_PRIVATE_KEY: secret
 };
 
-function accessKey(permission) {
+function accessKey(permission, key = publicKey) {
   return {
     keys: [{
-      public_key: publicKey,
+      public_key: key,
       access_key: { nonce: 7, permission }
     }]
   };
@@ -306,4 +310,151 @@ test("does not execute payments that require physical approval", async () => {
   assert.equal(calls, 1);
   assert.equal(result.payment.status, "pending");
   assert.equal(result.execution_transaction_hash, null);
+});
+
+
+const approvalPermission = {
+  FunctionCall: {
+    receiver_id: CANONICAL_CONTRACT_ID,
+    method_names: ["approve_spend"],
+    allowance: "1000000000000000000000000"
+  }
+};
+
+function signedCanonicalPayment() {
+  const { publicKey: devicePublicKey, privateKey: devicePrivateKey } = generateKeyPairSync("ed25519");
+  const rawPublicKey = devicePublicKey.export({ format: "der", type: "spki" }).subarray(-32);
+  const payment = {
+    id: "45",
+    agent_id: CANONICAL_AGENT_ID,
+    recipient_id: "merchant.testnet",
+    amount_yocto: "12345678901234567890",
+    nonce: "45",
+    expires_at_ns: "1793519712345678901",
+    status: "pending"
+  };
+  const message = encodeApprovalMessage({
+    contract_id: CANONICAL_CONTRACT_ID,
+    network_id: "testnet",
+    payment_id: payment.id,
+    recipient_id: payment.recipient_id,
+    amount_yocto: payment.amount_yocto,
+    nonce: payment.nonce,
+    expires_at_ns: payment.expires_at_ns
+  });
+  return {
+    payment,
+    publicKeyHex: rawPublicKey.toString("hex"),
+    signatureHex: signEd25519(null, message, devicePrivateKey).toString("hex"),
+    publicKeyBytes: [...rawPublicKey]
+  };
+}
+
+test("approval signer key is restricted to approve_spend only", () => {
+  const result = validateAgentFunctionCallKey(
+    accessKey(approvalPermission),
+    publicKey,
+    CANONICAL_CONTRACT_ID,
+    APPROVE_SPEND_METHODS
+  );
+  assert.deepEqual(result.method_names, ["approve_spend"]);
+  assert.throws(
+    () => validateAgentFunctionCallKey(
+      accessKey(restrictedPermission),
+      publicKey,
+      CANONICAL_CONTRACT_ID,
+      APPROVE_SPEND_METHODS
+    ),
+    SignerConfigurationError
+  );
+});
+
+test("submits only a locally verified registered-device signature to approve_spend", async () => {
+  const signed = signedCanonicalPayment();
+  const calls = [];
+  class MockProvider {}
+  class MockAccount {
+    async getAccessKeyList() { return accessKey(approvalPermission); }
+    async callFunctionRaw(args) {
+      calls.push(args);
+      return { transaction_outcome: { id: "hardware-approval-transaction" } };
+    }
+  }
+  const approvalEnv = { ...env, NEAR_APPROVAL_SIGNER_PRIVATE_KEY: secret };
+  const signer = await createNearApprovalSigner({
+    env: approvalEnv,
+    sdk: {
+      Account: MockAccount,
+      JsonRpcProvider: MockProvider,
+      KeyPair: { fromString: () => ({ getPublicKey: () => ({ toString: () => publicKey }) }) },
+      teraToGas: (value) => {
+        assert.equal(value, "30");
+        return 30_000_000_000_000n;
+      }
+    },
+    getPolicy: async () => ({
+      agent_id: CANONICAL_AGENT_ID,
+      network_id: "testnet",
+      device_public_key: signed.publicKeyBytes
+    }),
+    getPayment: async (id) => ({
+      ...signed.payment,
+      id,
+      status: "processing"
+    })
+  });
+
+  const result = await signer.approveSpend(signed.payment, {
+    public_key_hex: signed.publicKeyHex,
+    signature_hex: signed.signatureHex
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].methodName, "approve_spend");
+  assert.deepEqual(calls[0].args, {
+    payment_id: 45,
+    signature: [...Buffer.from(signed.signatureHex, "hex")]
+  });
+  assert.equal(calls[0].deposit, 0n);
+  assert.equal(calls[0].waitUntil, "FINAL");
+  assert.equal(result.transaction_hash, "hardware-approval-transaction");
+  assert.equal(result.payment.status, "processing");
+});
+
+test("refuses an unregistered public key and invalid signature before any contract call", async () => {
+  const signed = signedCanonicalPayment();
+  let calls = 0;
+  class MockProvider {}
+  class MockAccount {
+    async getAccessKeyList() { return accessKey(approvalPermission); }
+    async callFunctionRaw() { calls += 1; throw new Error("must not submit"); }
+  }
+  const signer = await createNearApprovalSigner({
+    env: { ...env, NEAR_APPROVAL_SIGNER_PRIVATE_KEY: secret },
+    sdk: {
+      Account: MockAccount,
+      JsonRpcProvider: MockProvider,
+      KeyPair: { fromString: () => ({ getPublicKey: () => ({ toString: () => publicKey }) }) },
+      teraToGas: () => 30_000_000_000_000n
+    },
+    getPolicy: async () => ({
+      agent_id: CANONICAL_AGENT_ID,
+      network_id: "testnet",
+      device_public_key: signed.publicKeyBytes
+    })
+  });
+  await assert.rejects(
+    signer.approveSpend(signed.payment, {
+      public_key_hex: "00".repeat(32),
+      signature_hex: signed.signatureHex
+    }),
+    (error) => error.code === "unregistered_device_key"
+  );
+  await assert.rejects(
+    signer.approveSpend(signed.payment, {
+      public_key_hex: signed.publicKeyHex,
+      signature_hex: "00".repeat(64)
+    }),
+    (error) => error.code === "invalid_device_signature"
+  );
+  assert.equal(calls, 0);
 });
