@@ -59,11 +59,10 @@ This is materially more than a firmware demo or an off-chain signature check: th
 
 ### 1. The contract account contained incompatible historical state
 
-The intended contract account, `manextech.testnet`, was not fresh. Its storage contained a prior `presence` state and related `presence_name` records. After deploying the Tapproved WASM, read-only calls failed with a Borsh state deserialization error.
+An earlier attempt to use `manextech.testnet` encountered pre-existing `presence` state. Tapproved view calls failed with a Borsh state deserialization error. This was an account-state layout conflict, not evidence that the Tapproved Wasm artifact was corrupt.
 
-The WASM checksum was checked against the local build. The problem was not a mismatched artifact; it was the account's existing state layout. Calling ordinary initialization was not a valid recovery path because the account was already initialized.
+The project later resolved the deployment issue by deploying a replacement Tapproved contract and testing it with NEAR CLI, as confirmed by the project owner. The current canonical account is `manextech.testnet`. The incompatible migration implementation was removed from the repository; the current contract ABI has no migration method. See [the current deployment record](TESTNET-DEPLOYMENT.md).
 
-A guarded, one-time migration entry point was implemented. It required the contract account itself to authorize the call, replaced the incompatible main state with a fresh Tapproved state, recorded a migration marker, and left unrelated historical storage keys intact. The old presence records were not imported. The migration was executed and the new policy state was inspected.
 
 ### 2. A payment expired during early testing
 
