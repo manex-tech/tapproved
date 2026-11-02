@@ -188,14 +188,14 @@ test("ignores a late response for a previous request while a new request is pend
     ...signed,
     frame_version: 1,
     request_id: firstRequest.request_id
-  }) + "\\n");
+  }) + "\n");
   assert.equal(bridge.pending, true);
 
   port.receive(JSON.stringify({
     ...signed,
     frame_version: 1,
     request_id: secondRequest.request_id
-  }) + "\\n");
+  }) + "\n");
   const result = await secondPending;
   assert.equal(result.signature_hex, signed.signature_hex);
   await bridge.disconnect();
