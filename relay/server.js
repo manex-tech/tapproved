@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
-import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy, getTransactionStatus, TransactionNotFoundError, TransactionQueryValidationError, TransactionWaitTimeoutError } from "./near-rpc.js";
+import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy, getTransactionStatus, isValidTransactionHash, TransactionNotFoundError, TransactionQueryValidationError, TransactionWaitTimeoutError } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
 import { createNearAgentSigner, createNearApprovalSigner } from "./near-signer.js";
 import { createSerialBridge } from "./serial.js";
