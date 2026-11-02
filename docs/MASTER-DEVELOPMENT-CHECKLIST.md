@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last inspected implementation revision:** `35132ff00d588b16b5f035d7cacb21847461abc7` (D13 disconnect/reset/power-loss recovery tests merge, 2026-11-02)  
+**Last inspected implementation revision:** `7e17c283b3686e110519cc76ac5047b08dd4dbd2` (E1 sample agent-to-relay integration merge, 2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -22,7 +22,9 @@
 
 ## Current checkpoint
 
-**Active task: E1 connect an agent to the relay.**
+**Active task: E2 exercise an automatically approved payment. This requires explicit approval before any live Testnet payment request or transfer.**
+
+**E1 completed:** PR [#59](https://github.com/manex-tech/tapproved/pull/59) merged as `7e17c283b3686e110519cc76ac5047b08dd4dbd2`; CI run [41523732632](https://github.com/manex-tech/tapproved/actions/runs/41523732632) passed all three jobs. Added `examples/agent-request.js`, a minimal authenticated client for `POST /v1/payment-requests`, with strict environment validation, HTTPS enforcement for non-loopback URLs, caller-supplied stable idempotency keys, and no automatic retries. Added five client tests; Node CI passed 130 tests with zero failures. Added `npm run agent:request`, optional `.env.example` fields and a README quickstart. No live payment request, NEAR transaction, signing or hardware interaction was performed. The next E2 task requires explicit approval for a live Testnet payment/transfer.
 
 **D13 completed:** PR [#58](https://github.com/manex-tech/tapproved/pull/58) merged as `35132ff00d588b16b5f035d7cacb21847461abc7`; CI run [41522764615](https://github.com/manex-tech/tapproved/actions/runs/41522764615) passed Node, contract/Wasm and firmware jobs. Relay now releases a stale serial-port object after unexpected close so a later explicit reconnect works. Added tests for ESP32 reset during an in-flight approval, old UUID rejection after reconnect, fail-closed behavior without signature submission, and every truncated present NVS seed length from 0 through 31 bytes. Added [DISCONNECT-RESET-POWER-LOSS.md](DISCONNECT-RESET-POWER-LOSS.md). These are host/model and CI tests only; no physical USB unplug, board reset, power interruption, NVS erase or hardware test was performed.
 
@@ -112,7 +114,7 @@ C12 is complete and merged in [PR #43](https://github.com/manex-tech/tapproved/p
 
 ## Phase E: End-to-end payment automation
 
-- [ ] **E1.** Connect an agent to the relay.
+- [x] **E1.** Connect an agent to the relay. PR #59 merged as `7e17c283b3686e110519cc76ac5047b08dd4dbd2`; CI run [41523732632](https://github.com/manex-tech/tapproved/actions/runs/41523732632) passed Node (130 tests, 0 failures), contract/Wasm and firmware jobs. Added a minimal authenticated Node agent client, explicit idempotency handling, environment configuration, tests, and README quickstart. No live payment request or transaction was performed.
 - [ ] **E2.** Exercise an automatically approved payment.
 - [ ] **E3.** Verify on-chain policy decisions.
 - [ ] **E4.** Verify automatic execution and callback settlement.
@@ -190,6 +192,7 @@ Update this section after each task with the date, commit/PR, tests run, evidenc
 
 | Date | Task | Result / evidence |
 |---|---|---|
+| 2026-11-02 | E1 sample agent-to-relay integration | PR #59 merged as `7e17c283b3686e110519cc76ac5047b08dd4dbd2`; CI run [41523732632](https://github.com/manex-tech/tapproved/actions/runs/41523732632) passed all three jobs. Node suite passed 130/130. Added an authenticated agent request example, strict configuration validation, stable idempotency-key behavior, no automatic retries, npm command and README quickstart. No live payment request, NEAR transaction or hardware interaction was performed. |
 | 2026-11-02 | D13 disconnect, reset and power-loss recovery | PR #58 merged as `35132ff00d588b16b5f035d7cacb21847461abc7`; CI run [41522764615](https://github.com/manex-tech/tapproved/actions/runs/41522764615) passed Node, contract/Wasm and firmware jobs. Relay can explicitly reconnect after unexpected serial close; reset/stale-response tests prove no signature submission without a completed device response; host NVS model rejects all truncated present seed lengths 0–31. Added `docs/DISCONNECT-RESET-POWER-LOSS.md`. No physical unplug, power-cycle, flash erase or board test was performed. |
 | 2026-11-02 | D12 device-key rotation verification | PR #56 merged as `b79b4d1112dd273d36ecde87e38cf9b595a92587`; CI run [41520953304](https://github.com/manex-tech/tapproved/actions/runs/41520953304) passed Node, contract/Wasm and firmware jobs. Contract tests passed 77/77, including successful approval by the rotated key and rejection of the previous key; pending payment and reservation state were preserved. Added `docs/DEVICE-KEY-ROTATION.md`. No live Testnet rotation or hardware modification occurred. |
 | 2026-11-02 | D11 ESP32 private-key RAM exposure and security hardening assessment | PR #55 merged as `599b35f8f1b11c97f26e8142a0c9a5649a7af8ce`; CI run [41519115081](https://github.com/manex-tech/tapproved/actions/runs/41519115081) passed Node, contract/Wasm and firmware jobs. Removed the global private seed, reloaded it only after fresh physical approval into scope-bound zeroizing buffers, verified key identity before signing, and added `docs/ESP32-SECURITY-ASSESSMENT.md`. No eFuse programming, flash-encryption activation, debug lockout, firmware flashing or on-chain action occurred. |
