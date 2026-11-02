@@ -15,13 +15,16 @@ export class SerialBridgeError extends Error {
   }
 }
 
-function decimalString(value, field, { positive = false } = {}) {
-  if (typeof value !== "string" || !/^[0-9]+$/.test(value)) {
-    throw new SerialBridgeError("invalid_payment_context", `${field} must be a decimal string`);
+function decimalString(value, field, { positive = false, max = null } = {}) {
+  if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)) {
+    throw new SerialBridgeError("invalid_payment_context", `${field} must be a canonical decimal string`);
   }
   const parsed = BigInt(value);
   if (positive && parsed === 0n) {
     throw new SerialBridgeError("invalid_payment_context", `${field} must be greater than zero`);
+  }
+  if (max !== null && parsed > max) {
+    throw new SerialBridgeError("invalid_payment_context", `${field} exceeds its protocol integer range`);
   }
   return value;
 }
@@ -41,7 +44,7 @@ export function buildDeviceApprovalFrame(payment, requestId) {
   }
   if (typeof payment.recipient_id !== "string" ||
       !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(payment.recipient_id) ||
-      payment.recipient_id.length > 64) {
+      payment.recipient_id.length < 2 || payment.recipient_id.length > 64) {
     throw new SerialBridgeError("invalid_payment_context", "recipient_id is invalid");
   }
 
@@ -50,11 +53,13 @@ export function buildDeviceApprovalFrame(payment, requestId) {
     request_id: requestId,
     contract_id: DEFAULT_CONTRACT_ID,
     network_id: "testnet",
-    payment_id: decimalString(payment.id, "payment_id", { positive: true }),
+    agent_id: CANONICAL_DEVICE_AGENT_ID,
+    status: "pending",
+    payment_id: decimalString(payment.id, "payment_id", { positive: true, max: (1n << 64n) - 1n }),
     recipient_id: payment.recipient_id,
-    amount_yocto: decimalString(payment.amount_yocto, "amount_yocto", { positive: true }),
-    nonce: decimalString(payment.nonce, "nonce"),
-    expires_at_ns: decimalString(payment.expires_at_ns, "expires_at_ns", { positive: true })
+    amount_yocto: decimalString(payment.amount_yocto, "amount_yocto", { positive: true, max: (1n << 128n) - 1n }),
+    nonce: decimalString(payment.nonce, "nonce", { max: (1n << 64n) - 1n }),
+    expires_at_ns: decimalString(payment.expires_at_ns, "expires_at_ns", { positive: true, max: (1n << 64n) - 1n })
   };
 }
 
