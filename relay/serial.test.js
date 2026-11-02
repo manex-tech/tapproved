@@ -68,7 +68,10 @@ function makeBridge(options = {}) {
 }
 
 test("builds the exact canonical device frame from a pending contract payment", () => {
-  assert.deepEqual(buildDeviceApprovalFrame(payment), {
+  const requestId = "123e4567-e89b-42d3-a456-426614174000";
+  assert.deepEqual(buildDeviceApprovalFrame(payment, requestId), {
+    frame_version: 1,
+    request_id: requestId,
     contract_id: "manextech.testnet",
     network_id: "testnet",
     payment_id: "15",
@@ -80,10 +83,12 @@ test("builds the exact canonical device frame from a pending contract payment", 
 });
 
 test("refuses non-pending, wrong-agent and malformed payment contexts", () => {
-  assert.throws(() => buildDeviceApprovalFrame({ ...payment, status: "approved" }), /payment_not_pending/);
-  assert.throws(() => buildDeviceApprovalFrame({ ...payment, agent_id: "other.testnet" }), /unexpected_agent/);
-  assert.throws(() => buildDeviceApprovalFrame({ ...payment, amount_yocto: 1 }), /amount_yocto/);
-  assert.throws(() => buildDeviceApprovalFrame({ ...payment, expires_at_ns: "0" }), /expires_at_ns/);
+  assert.throws(() => buildDeviceApprovalFrame(payment), /invalid_request_id/);
+  assert.throws(() => buildDeviceApprovalFrame(payment, "not-a-uuid"), /invalid_request_id/);
+  assert.throws(() => buildDeviceApprovalFrame({ ...payment, status: "approved" }, "123e4567-e89b-42d3-a456-426614174000"), /payment_not_pending/);
+  assert.throws(() => buildDeviceApprovalFrame({ ...payment, agent_id: "other.testnet" }, "123e4567-e89b-42d3-a456-426614174000"), /unexpected_agent/);
+  assert.throws(() => buildDeviceApprovalFrame({ ...payment, amount_yocto: 1 }, "123e4567-e89b-42d3-a456-426614174000"), /amount_yocto/);
+  assert.throws(() => buildDeviceApprovalFrame({ ...payment, expires_at_ns: "0" }, "123e4567-e89b-42d3-a456-426614174000"), /expires_at_ns/);
 });
 
 test("opens the configured serial port and handles fragmented signed JSON after text output", async () => {
@@ -93,7 +98,8 @@ test("opens the configured serial port and handles fragmented signed JSON after 
   assert.deepEqual(port.config, { path: "COM7", baudRate: 115200, autoOpen: false });
 
   port.onWrite = () => {
-    const response = JSON.stringify(signed) + "\r\n";
+    const request = JSON.parse(port.writes[0].toString("utf8"));
+    const response = JSON.stringify({ ...signed, frame_version: 1, request_id: request.request_id }) + "\r\n";
     port.receive("ESP32 approval prompt\r\n" + response.slice(0, 37));
     port.receive(response.slice(37));
   };
@@ -104,7 +110,9 @@ test("opens the configured serial port and handles fragmented signed JSON after 
     signature_hex: "b".repeat(128)
   });
   const frame = JSON.parse(port.writes[0].toString("utf8"));
-  assert.deepEqual(frame, buildDeviceApprovalFrame(payment));
+  assert.deepEqual(frame, buildDeviceApprovalFrame(payment, frame.request_id));
+  assert.equal(frame.frame_version, 1);
+  assert.match(frame.request_id, /^[0-9a-f-]{36}$/i);
   await bridge.disconnect();
   assert.equal(bridge.connected, false);
 });
@@ -124,14 +132,22 @@ test("rejects concurrent approval requests", async () => {
 test("rejects device timeout/rejection responses and malformed signatures", async () => {
   const { bridge, port } = makeBridge();
   await bridge.connect();
-  port.onWrite = () => port.receive(JSON.stringify({ status: "rejected_or_timed_out" }) + "\n");
+  port.onWrite = (data) => {
+    const request = JSON.parse(data.toString("utf8"));
+    port.receive(JSON.stringify({ frame_version: 1, request_id: request.request_id, status: "rejected_or_timed_out" }) + "\n");
+  };
   await assert.rejects(bridge.requestApproval(payment), /device_rejected_or_timed_out/);
 
-  port.onWrite = () => port.receive(JSON.stringify({
-    status: "signed",
-    public_key_hex: "bad",
-    signature_hex: "b".repeat(128)
-  }) + "\n");
+  port.onWrite = (data) => {
+    const request = JSON.parse(data.toString("utf8"));
+    port.receive(JSON.stringify({
+      frame_version: 1,
+      request_id: request.request_id,
+      status: "signed",
+      public_key_hex: "bad",
+      signature_hex: "b".repeat(128)
+    }) + "\n");
+  };
   await assert.rejects(bridge.requestApproval(payment), /invalid_device_signature_frame/);
   await bridge.disconnect();
 });
@@ -153,4 +169,34 @@ test("validates serial configuration before creating a port", () => {
   assert.throws(() => createSerialBridge({ path: "" }), /serial_port_not_configured/);
   assert.throws(() => createSerialBridge({ path: "COM7", baudRate: 0 }), /invalid_serial_baud_rate/);
   assert.throws(() => createSerialBridge({ path: "COM7", timeoutMs: 10 }), /invalid_serial_timeout/);
+});
+
+test("ignores a late response for a previous request while a new request is pending", async () => {
+  const { bridge, port } = makeBridge();
+  await bridge.connect();
+  const firstPending = bridge.requestApproval(payment);
+  const firstRequest = JSON.parse(port.writes[0].toString("utf8"));
+  await bridge.disconnect();
+  await assert.rejects(firstPending, /serial_port_disconnected/);
+
+  await bridge.connect();
+  const secondPending = bridge.requestApproval(payment);
+  const secondRequest = JSON.parse(port.writes[1].toString("utf8"));
+  assert.notEqual(firstRequest.request_id, secondRequest.request_id);
+
+  port.receive(JSON.stringify({
+    ...signed,
+    frame_version: 1,
+    request_id: firstRequest.request_id
+  }) + "\\n");
+  assert.equal(bridge.pending, true);
+
+  port.receive(JSON.stringify({
+    ...signed,
+    frame_version: 1,
+    request_id: secondRequest.request_id
+  }) + "\\n");
+  const result = await secondPending;
+  assert.equal(result.signature_hex, signed.signature_hex);
+  await bridge.disconnect();
 });
