@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last inspected implementation revision:** `b8011161e5c0ebc0fdd66a999f2a6146d43d2f04` (2026-11-02)  
+**Last inspected implementation revision:** `3ed993b5ec164f8143a0f81d3fe01256e19f9360` (2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -30,7 +30,9 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 
 **C1 completed:** [Relay architecture and trust boundaries](RELAY-ARCHITECTURE.md) defines the agent, relay, signer, contract, serial bridge and ESP32 boundaries; API contract; secret configuration; lifecycle and failure invariants. This is a design baseline, not a claim that these components are implemented.
 
-`main` is at `a3ffdc562fbdaec2df3b2d66f839583697de2016`. PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable idempotency; PR #30 added the restricted NEAR agent signer; PR #31 added automatic execution; PR #33 added pending-approval and payment-status reads; PR #35 completed bounded ESP32 serial transport and firmware framing; PR #38 added the one-cycle hardware approval flow and separate `approve_spend`-only signer; PR #40 added authenticated transaction and receipt status tracking. Live approval remains disabled until the owner provisions `NEAR_APPROVAL_SIGNER_PRIVATE_KEY` on `manex-agent.testnet`.\n\nC10 implementation is under review in PR #41. It is not complete until Node, Rust/Wasm and ESP32 CI jobs pass and the PR is merged. The expiry keeper remains disabled in a live relay until the owner provisions the separate `expire_payment`-only FunctionCall key.
+`main` is at `a3ffdc562fbdaec2df3b2d66f839583697de2016`. PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable idempotency; PR #30 added the restricted NEAR agent signer; PR #31 added automatic execution; PR #33 added pending-approval and payment-status reads; PR #35 completed bounded ESP32 serial transport and firmware framing; PR #38 added the one-cycle hardware approval flow and separate `approve_spend`-only signer; PR #40 added authenticated transaction and receipt status tracking. Live approval remains disabled until the owner provisions `NEAR_APPROVAL_SIGNER_PRIVATE_KEY` on `manex-agent.testnet`.
+
+C10 implementation is under review in PR #41. It is not complete until Node, Rust/Wasm and ESP32 CI jobs pass and the PR is merged. The expiry keeper remains disabled in a live relay until the owner provisions the separate `expire_payment`-only FunctionCall key.
 
 ## Phase A: Repository consistency and documentation
 
