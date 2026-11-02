@@ -111,6 +111,16 @@ test("successful submission is replayed without a second submit call", async () 
     assert.equal(second.record.result.payment.id, "7");
     assert.equal(second.record.result.execution_transaction_hash, "execution-transaction-hash");
     assert.equal(calls, 1);
+    assert.deepEqual(await store.getPaymentTransactions(agentId, "7"), {
+      id: "manex-agent.testnet:7",
+      agent_id: agentId,
+      payment_id: "7",
+      request_transaction_hash: "test-transaction-hash",
+      execution_transaction_hash: "execution-transaction-hash",
+      approval_transaction_hash: null,
+      created_at: (await store.getPaymentTransactions(agentId, "7")).created_at,
+      updated_at: (await store.getPaymentTransactions(agentId, "7")).updated_at
+    });
   });
 });
 
@@ -144,5 +154,37 @@ test("corrupt journal fails closed instead of allowing a fresh reservation", asy
       /corrupt/
     );
     assert.equal((await readFile(path, "utf8")), "{broken");
+  });
+});
+
+
+test("persists approval transaction references across store restart and rejects conflicting hashes", async () => {
+  await withStore(async (path) => {
+    const first = new JsonIdempotencyStore(path);
+    await first.recordPaymentTransaction(agentId, "42", "request", "request-hash");
+    await first.recordPaymentTransaction(agentId, "42", "execution", "execution-hash");
+    await first.recordPaymentTransaction(agentId, "42", "approval", "approval-hash");
+    const second = new JsonIdempotencyStore(path);
+    const tracked = await second.getPaymentTransactions(agentId, "42");
+    assert.equal(tracked.request_transaction_hash, "request-hash");
+    assert.equal(tracked.execution_transaction_hash, "execution-hash");
+    assert.equal(tracked.approval_transaction_hash, "approval-hash");
+    await second.recordPaymentTransaction(agentId, "42", "approval", "approval-hash");
+    await assert.rejects(
+      second.recordPaymentTransaction(agentId, "42", "approval", "different-approval-hash"),
+      /conflicts/
+    );
+  });
+});
+
+test("migrates a version-one idempotency journal when transaction tracking is first written", async () => {
+  await withStore(async (path) => {
+    const { writeFile, readFile } = await import("node:fs/promises");
+    await writeFile(path, JSON.stringify({ version: 1, records: [] }), "utf8");
+    const store = new JsonIdempotencyStore(path);
+    await store.recordPaymentTransaction(agentId, "43", "approval", "approval-hash");
+    const parsed = JSON.parse(await readFile(path, "utf8"));
+    assert.equal(parsed.version, 2);
+    assert.equal(parsed.payment_transactions[0].payment_id, "43");
   });
 });
