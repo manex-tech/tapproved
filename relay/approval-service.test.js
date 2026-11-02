@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createApprovalProcessor } from "./approval-service.js";
+import { HardwareApprovalError } from "./near-signer.js";
 
 const pendingPayment = {
   id: "45",
@@ -22,8 +23,12 @@ function createOperationStore() {
     },
     async beginOperation(agentId, paymentId, kind) {
       const id = key(agentId, paymentId, kind);
-      if (operations.has(id)) return { created: false, operation: operations.get(id) };
-      const operation = { agent_id: agentId, payment_id: paymentId, kind, state: "submitting" };
+      if (operations.has(id) && operations.get(id).state !== "rejected") {
+        return { created: false, operation: operations.get(id) };
+      }
+      const operation = operations.get(id) ?? { agent_id: agentId, payment_id: paymentId, kind };
+      operation.state = "submitting";
+      operation.attempt_count = (operation.attempt_count ?? 0) + 1;
       operations.set(id, operation);
       return { created: true, operation };
     },
@@ -36,6 +41,12 @@ function createOperationStore() {
     async markOperationUncertain(agentId, paymentId, kind) {
       const operation = operations.get(key(agentId, paymentId, kind));
       operation.state = "uncertain";
+      return operation;
+    },
+    async rejectOperation(agentId, paymentId, kind, errorCode) {
+      const operation = operations.get(key(agentId, paymentId, kind));
+      operation.state = "rejected";
+      operation.error_code = errorCode;
       return operation;
     },
     async confirmOperation(agentId, paymentId, kind, observedStatus) {
@@ -187,4 +198,33 @@ test("records and confirms a successful approval transaction", async () => {
   assert.equal(operation.state, "confirmed");
   assert.equal(operation.transaction_hash, "approval-transaction");
   assert.equal(operation.observed_status, "processing");
+});
+
+
+test("permits a new approval cycle after a known pre-submit signature rejection", async () => {
+  let signerCalls = 0;
+  const { processor, operationStore } = dependencies({
+    approvalSigner: {
+      async approveSpend(payment) {
+        signerCalls += 1;
+        if (signerCalls === 1) throw new HardwareApprovalError("invalid_device_signature");
+        return {
+          transaction_hash: "approval-after-rejection",
+          payment: { ...payment, status: "processing" }
+        };
+      }
+    }
+  });
+  await assert.rejects(
+    processor(),
+    (error) => error.code === "invalid_device_signature"
+  );
+  const rejected = await operationStore.getOperation("manex-agent.testnet", "45", "approval");
+  assert.equal(rejected.state, "rejected");
+  const result = await processor();
+  assert.equal(result.transaction_hash, "approval-after-rejection");
+  const confirmed = await operationStore.getOperation("manex-agent.testnet", "45", "approval");
+  assert.equal(confirmed.state, "confirmed");
+  assert.equal(confirmed.attempt_count, 2);
+  assert.equal(signerCalls, 2);
 });
