@@ -322,6 +322,25 @@ export async function createNearApprovalSigner(options = {}) {
       throw new HardwareApprovalError("invalid_device_signature");
     }
 
+    let currentPayment;
+    try {
+      currentPayment = await (options.getPayment ?? getPayment)(
+        payment.id,
+        { env, fetchImpl: options.fetchImpl }
+      );
+    } catch {
+      throw new HardwareApprovalError("payment_state_read_failed");
+    }
+    if (!currentPayment || currentPayment.id !== payment.id ||
+        currentPayment.agent_id !== CANONICAL_AGENT_ID ||
+        currentPayment.status !== "pending" ||
+        currentPayment.recipient_id !== payment.recipient_id ||
+        currentPayment.amount_yocto !== payment.amount_yocto ||
+        currentPayment.nonce !== payment.nonce ||
+        currentPayment.expires_at_ns !== payment.expires_at_ns) {
+      throw new HardwareApprovalError("payment_no_longer_pending");
+    }
+
     const signatureBytes = [...Buffer.from(signedResponse.signature_hex, "hex")];
     const outcome = await account.callFunctionRaw({
       contractId: config.contractId,
