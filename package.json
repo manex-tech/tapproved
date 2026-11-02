@@ -6,7 +6,7 @@
   "description": "Hardware-backed spending approval for AI agents on NEAR.",
   "scripts": {
     "start": "node --env-file-if-exists=.env relay/server.js",
-    "check": "node --check relay/server.js && node --check relay/auth.js && node --check relay/payment-requests.js && node --check relay/near-signer.js && node --check relay/serial.js && node --check relay/approval-service.js && node --check relay/expiry-service.js && node --test relay/auth.test.js relay/near-rpc.test.js relay/transaction-status.test.js relay/transaction-api.test.js relay/protocol.test.js relay/payment-requests.test.js relay/server.test.js relay/near-signer.test.js relay/serial.test.js relay/approval-service.test.js relay/expiry-service.test.js && node --check relay/simulator.js",
+    "check": "node --check relay/server.js && node --check relay/auth.js && node --check relay/payment-requests.js && node --check relay/near-signer.js && node --check relay/serial.js && node --check relay/approval-service.js && node --check relay/expiry-service.js && node --check relay/recovery-service.js && node --test relay/auth.test.js relay/near-rpc.test.js relay/transaction-status.test.js relay/transaction-api.test.js relay/protocol.test.js relay/payment-requests.test.js relay/server.test.js relay/near-signer.test.js relay/serial.test.js relay/approval-service.test.js relay/expiry-service.test.js relay/recovery-service.test.js && node --check relay/simulator.js",
     "simulate": "node relay/simulator.js"
   },
   "engines": {
