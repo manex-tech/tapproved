@@ -60,7 +60,7 @@ test("maps unknown transaction and finality timeout RPC errors", async () => {
   await assert.rejects(
     getTransactionStatus(hash, {
       env: {},
-      fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ error: { message: "UNKNOWN_TRANSACTION: transaction not found" } }) })
+      fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ error: { name: "HANDLER_ERROR", cause: { name: "UNKNOWN_TRANSACTION" }, message: "Server error" } }) })
     }),
     TransactionNotFoundError
   );
@@ -68,7 +68,7 @@ test("maps unknown transaction and finality timeout RPC errors", async () => {
     getTransactionStatus(hash, {
       env: {},
       waitUntil: "FINAL",
-      fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ error: { message: "TIMEOUT_ERROR: timed out waiting for finality" } }) })
+      fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ error: { name: "HANDLER_ERROR", cause: { name: "TIMEOUT_ERROR" }, message: "Server error" } }) })
     }),
     TransactionWaitTimeoutError
   );
