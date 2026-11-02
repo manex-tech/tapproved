@@ -516,7 +516,8 @@ test("hardware approval processing invokes the configured single-cycle processor
       state: "submitted",
       payment_id: "45",
       transaction_hash: "approval-transaction",
-      payment: { id: "45", status: "processing" }
+      payment: { id: "45", status: "processing" },
+      transaction_tracking_available: false
     });
     assert.equal(calls, 1);
   });
