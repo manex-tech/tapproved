@@ -14,6 +14,7 @@ import {
 
 const MAX_REQUEST_BODY_BYTES = 4096;
 const DEFAULT_AGENT_ID = "manex-agent.testnet";
+const PAYMENT_STATUSES = new Set(["pending", "approved", "processing", "paid", "failed", "expired", "cancelled"]);
 
 class HttpError extends Error {
   constructor(status, code) {
@@ -170,7 +171,9 @@ export function createRelayServer(options = {}) {
       }
       try {
         const activePayment = await readActivePayment({ env: { NEAR_CONTRACT_ID: DEFAULT_CONTRACT_ID } });
-        if (activePayment && activePayment.agent_id !== agentId) throw new Error("unexpected active payment agent");
+        if (activePayment && (activePayment.agent_id !== agentId || !PAYMENT_STATUSES.has(activePayment.status))) {
+          throw new Error("unexpected active payment record");
+        }
         const pending = activePayment?.status === "pending" ? activePayment : null;
         send(response, 200, {
           network: "testnet",
@@ -208,6 +211,7 @@ export function createRelayServer(options = {}) {
           send(response, 404, { error: "payment_not_found" });
           return;
         }
+        if (!PAYMENT_STATUSES.has(payment.status)) throw new Error("unknown contract payment status");
         const approvalRequired = payment.status === "pending";
         const terminal = ["paid", "failed", "expired", "cancelled"].includes(payment.status);
         send(response, 200, {
