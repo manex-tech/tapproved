@@ -33,3 +33,6 @@ coverage/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local relay state (contains payment idempotency records)
+.tapproved/
