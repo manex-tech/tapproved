@@ -154,3 +154,16 @@ test("validates serial configuration before creating a port", () => {
   assert.throws(() => createSerialBridge({ path: "COM7", baudRate: 0 }), /invalid_serial_baud_rate/);
   assert.throws(() => createSerialBridge({ path: "COM7", timeoutMs: 10 }), /invalid_serial_timeout/);
 });
+
+test("rejects non-canonical and overflowing payment integer fields", () => {
+  for (const invalid of [
+    { ...payment, id: "18446744073709551616" },
+    { ...payment, nonce: "18446744073709551616" },
+    { ...payment, expires_at_ns: "18446744073709551616" },
+    { ...payment, amount_yocto: "340282366920938463463374607431768211456" },
+    { ...payment, id: "015" },
+    { ...payment, recipient_id: "x" }
+  ]) {
+    assert.throws(() => buildDeviceApprovalFrame(invalid), SerialBridgeError);
+  }
+});
