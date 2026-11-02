@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last inspected implementation revision:** `774721d21b9c7244803274a690325f81d3b75058` (C13 merge, 2026-11-02)  
+**Last inspected implementation revision:** `c94d6440144e766d9fd1367973fb90944b43d164` (D1 audit merge, 2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -22,7 +22,9 @@
 
 ## Current checkpoint
 
-**Active task: D1 firmware audit against the contract and approval protocol.**
+**Active task: D2 verify canonical contract/network configuration.**
+
+**D1 completed:** Source-level firmware, contract, protocol v1 and relay audit recorded in [FIRMWARE-PROTOCOL-AUDIT.md](FIRMWARE-PROTOCOL-AUDIT.md). PR [#45](https://github.com/manex-tech/tapproved/pull/45) merged as `c94d6440144e766d9fd1367973fb90944b43d164`. CI run [41505991730](https://github.com/manex-tech/tapproved/actions/runs/41505991730) passed firmware, Node and contract jobs. D1 identified nine findings and allocated implementation follow-through to D4–D12; the audit itself did not change firmware or contract behavior. D2 is the next task and must be inspected against the current repository before any edits.
 
 The disposable B10 lab firmware branch was merged as PR #26, but the lab account is no longer the target architecture. Development is consolidated around the canonical Testnet contract `manextech.testnet` and registered agent `manex-agent.testnet`. Do not initialize, deploy over, or transfer funds from the canonical contract during implementation. The existing deployed contract's storage-layout compatibility must be assessed before any final redeployment decision.
 
@@ -88,7 +90,7 @@ C12 is complete and merged in [PR #43](https://github.com/manex-tech/tapproved/p
 
 ## Phase D: Hardware security and firmware
 
-- [ ] **D1.** Audit the firmware against the contract and approval protocol.
+- [x] **D1.** Audit the firmware against the contract and approval protocol. PR #45 merged as `c94d6440144e766d9fd1367973fb90944b43d164`; CI run [41505991730](https://github.com/manex-tech/tapproved/actions/runs/41505991730) passed all three jobs. Findings and follow-through allocation are documented in [FIRMWARE-PROTOCOL-AUDIT.md](FIRMWARE-PROTOCOL-AUDIT.md).
 - [ ] **D2.** Verify canonical contract/network configuration.
 - [ ] **D3.** Define reliable hardware communication framing and protocol.
 - [ ] **D4.** Receive and validate payment requests.
@@ -182,6 +184,7 @@ Update this section after each task with the date, commit/PR, tests run, evidenc
 
 | Date | Task | Result / evidence |
 |---|---|---|
+| 2026-11-02 | D1 firmware/protocol audit | PR #45 merged as `c94d6440144e766d9fd1367973fb90944b43d164`; CI run [41505991730](https://github.com/manex-tech/tapproved/actions/runs/41505991730) passed firmware, Node and contract jobs. Nine findings recorded with follow-through tasks. |
 | 2026-11-02 | B10 implementation and B12 CI verification | PR #24 merged as `67884ca12b799a029d52f60e445600916dd29cce`; CI run [41430358558](https://github.com/manex-tech/tapproved/actions/runs/41430358558), 75 Rust tests passed; empirical Testnet callback-gas measurement deferred to final deployment validation. |
 | 2026-11-02 | C1 relay architecture | Added `docs/RELAY-ARCHITECTURE.md`; design reviewed against current relay, contract, protocol and firmware source. |
 | 2026-11-02 | C2 agent authentication | PR #27 merged as `cb13b5b1096c79caa8076c72e29a443b962e9f38`; CI run [41461878608](https://github.com/manex-tech/tapproved/actions/runs/41461878608) passed. PR #29 merged as `ef67015a13230e25dfd529a154eb39e9466156c4`; CI run [41464289588](https://github.com/manex-tech/tapproved/actions/runs/41464289588) passed Node, contract and firmware jobs. |
