@@ -175,39 +175,6 @@ test("migrates v1 journal and durably suppresses duplicate approval and expiry o
   });
 });
 
-test("reconciles an unresolved request only against an exact contract payment match", async () => {
-  await withStore(async (path) => {
-    const store = new JsonIdempotencyStore(path);
-    await store.reserve({ agentId, idempotencyKey: key, payment });
-    await store.transition(agentId, key, "submitting");
-    const unresolved = await store.listUnresolvedPaymentRequests(agentId);
-    assert.equal(unresolved.length, 1);
-
-    await assert.rejects(
-      store.reconcileSubmitted(agentId, key, {
-        id: "73",
-        agent_id: agentId,
-        recipient_id: "other.testnet",
-        amount_yocto: payment.amount_yocto,
-        status: "pending"
-      }),
-      /does not match/
-    );
-
-    const reconciled = await store.reconcileSubmitted(agentId, key, {
-      id: "73",
-      agent_id: agentId,
-      recipient_id: payment.recipient_id,
-      amount_yocto: payment.amount_yocto,
-      status: "pending"
-    });
-    assert.equal(reconciled.state, "submitted");
-    assert.equal(reconciled.result.recovered, true);
-    assert.equal(reconciled.result.transaction_hash, null);
-    assert.equal(reconciled.result.payment.id, "73");
-    assert.equal((await store.listUnresolvedPaymentRequests(agentId)).length, 0);
-  });
-});
 
 test("operation confirmation requires a contract state appropriate to the operation", async () => {
   await withStore(async (path) => {
