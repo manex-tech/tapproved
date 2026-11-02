@@ -37,7 +37,7 @@ Keep the implementation modular and testable:
 
 - `relay/config.js`: validated environment configuration, canonical Testnet defaults, signer and serial settings.
 - `relay/auth.js`: agent API authentication, constant-time credential comparison, credential rotation support and authorization middleware.
-- `relay/idempotency.js`: durable mapping from (agent, idempotency key) to one logical request and its result. The production adapter must be persistent; in-memory storage is test-only.
+- `relay/payment-requests.js`: strict recipient/amount validation, request fingerprinting and a durable JSON idempotency journal. The journal uses atomic replacement and a single-process lock; run one relay writer per journal. It deliberately never automatically resubmits an entry left reserved, submitting or uncertain after a crash. A multi-instance deployment will require a transactional shared database or equivalent distributed lock.
 - `relay/near-rpc.js`: read-only JSON-RPC views and receipt/status queries with request timeouts and strict response validation.
 - `relay/near-signer.js`: isolated transaction submission interface. No secret key is accepted from HTTP request data.
 - `relay/contract.js`: typed contract method wrappers, exact decimal-string handling for u64/u128 values, and transaction outcome parsing.
@@ -45,7 +45,7 @@ Keep the implementation modular and testable:
 - `relay/orchestrator.js`: payment lifecycle state machine driven by contract observations and serial events.
 - `relay/server.js`: HTTP routes, authentication, input limits, structured error mapping and graceful shutdown.
 
-The first implementation may use Node.js built-ins and small explicit interfaces. Do not add a database, cloud service or framework without a concrete requirement. Persistence must be introduced before claiming crash-safe idempotency or production reliability.
+The first implementation may use Node.js built-ins and small explicit interfaces. Do not add a database, cloud service or framework without a concrete requirement. The current local JSON journal persists across process restarts and fails closed on corruption, but it is not a distributed database and does not claim multi-instance production reliability.
 
 ## 4. HTTP API contract
 
