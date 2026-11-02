@@ -288,3 +288,40 @@ test("discards an incomplete response frame across disconnect and reconnect", as
   assert.equal(result.signature_hex, signed.signature_hex);
   await bridge.disconnect();
 });
+
+test("reconnects after an unexpected device reset and ignores the interrupted request", async () => {
+  const { bridge, port } = makeBridge();
+  await bridge.connect();
+
+  const interrupted = bridge.requestApproval(payment);
+  const firstRequest = JSON.parse(port.writes[0].toString("utf8"));
+  port.isOpen = false;
+  port.emit("close");
+  await assert.rejects(interrupted, (error) => error.code === "serial_port_closed");
+  assert.equal(bridge.connected, false);
+  assert.equal(bridge.pending, false);
+
+  // A device reboot closes USB serial. A later explicit connect must open a
+  // fresh session rather than getting stuck behind the old closed port object.
+  await bridge.connect();
+  assert.equal(bridge.connected, true);
+  const next = bridge.requestApproval(payment);
+  const nextRequest = JSON.parse(port.writes[1].toString("utf8"));
+  assert.notEqual(firstRequest.request_id, nextRequest.request_id);
+
+  port.receive(JSON.stringify({
+    ...signed,
+    frame_version: 1,
+    request_id: firstRequest.request_id
+  }) + "\n");
+  assert.equal(bridge.pending, true);
+
+  port.receive(JSON.stringify({
+    ...signed,
+    frame_version: 1,
+    request_id: nextRequest.request_id
+  }) + "\n");
+  const result = await next;
+  assert.equal(result.signature_hex, signed.signature_hex);
+  await bridge.disconnect();
+});

@@ -143,6 +143,7 @@ CI runs Node syntax/tests, Rust contract tests plus a release Wasm build, and an
 - [Firmware and protocol audit](docs/FIRMWARE-PROTOCOL-AUDIT.md)
 - [ESP32 security assessment](docs/ESP32-SECURITY-ASSESSMENT.md)
 - [Device-key rotation procedure](docs/DEVICE-KEY-ROTATION.md)
+- [Disconnect, reset and power-loss recovery tests](docs/DISCONNECT-RESET-POWER-LOSS.md)
 - [Local simulator](docs/SIMULATOR.md)
 
 ## License

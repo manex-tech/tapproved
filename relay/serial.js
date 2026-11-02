@@ -171,6 +171,9 @@ export function createSerialBridge(options = {}) {
   function onPortClose() {
     connected = false;
     incoming = "";
+    // An unexpected close leaves a stale SerialPort object behind unless it
+    // is released here. Clear it so an explicit later connect() can reopen.
+    if (port && !port.isOpen) port = null;
     rejectPending(new SerialBridgeError("serial_port_closed"));
   }
 
