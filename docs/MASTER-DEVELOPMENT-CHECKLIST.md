@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last verified source revision:** `501d3b7b0acbe1ae1aecec1ebf0d0fda009b6ca5` (2026-11-02)  
+**Last verified source revision:** `59873cc671fa6c26a3b208b361d85c0635c5cd50` (2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -22,7 +22,7 @@
 
 ## Current checkpoint
 
-**Active task: C6 pending hardware-approval tracking.**
+**Active task: C7 ESP32 serial communication.**
 
 The disposable B10 lab firmware branch was merged as PR #26, but the lab account is no longer the target architecture. Development is consolidated around the canonical Testnet contract `manextech.testnet` and registered agent `manex-agent.testnet`. Do not initialize, deploy over, or transfer funds from the canonical contract during implementation. The existing deployed contract's storage-layout compatibility must be assessed before any final redeployment decision.
 
@@ -30,7 +30,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 
 **C1 completed:** [Relay architecture and trust boundaries](RELAY-ARCHITECTURE.md) defines the agent, relay, signer, contract, serial bridge and ESP32 boundaries; API contract; secret configuration; lifecycle and failure invariants. This is a design baseline, not a claim that these components are implemented.
 
-`main` is at `501d3b7b0acbe1ae1aecec1ebf0d0fda009b6ca5`. PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable idempotency; PR #30 added the restricted NEAR agent signer; PR #31 added automatic execution for contract-approved payments. The signer code is merged, but live preflight remains blocked until the dedicated FunctionCall key is provisioned on `manex-agent.testnet`.
+`main` is at `59873cc671fa6c26a3b208b361d85c0635c5cd50`. PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable idempotency; PR #30 added the restricted NEAR agent signer; PR #31 added automatic execution for contract-approved payments; PR #33 added pending-approval polling and contract-backed payment status reads. The signer code is merged, but live preflight remains blocked until the dedicated FunctionCall key is provisioned on `manex-agent.testnet`.
 
 ## Phase A: Repository consistency and documentation
 
@@ -70,7 +70,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 - [x] **C3.** Submit agent spending requests. Authenticated `POST /v1/payment-requests` validates and submits the contract request with durable idempotency; merged in PR #29 and completed by the signer integration in PR #30.
 - [x] **C4.** Submit contract transactions through a controlled signer flow. PR #30 verifies the live agent FunctionCall key is scoped to `manextech.testnet` and the exact approved method set; live key preflight still requires owner provisioning.
 - [x] **C5.** Execute automatically approved payments. PR #31 calls `execute_approved_spend` only when the contract returns `approved`, then reads the contract payment record and persists both transaction hashes. Pending payments are not auto-executed.
-- [ ] **C6.** Track pending hardware approvals.
+- [x] **C6.** Track pending hardware approvals. PR #33 exposes the contract-derived pending approval context and authenticated `GET /v1/payments/:paymentId` lifecycle lookup. Node integration tests cover pending, active and terminal states, authentication, foreign-agent records, invalid IDs and RPC failures.
 - [ ] **C7.** Implement ESP32 serial communication.
 - [ ] **C8.** Submit hardware signatures to the contract.
 - [ ] **C9.** Track transaction and payment status.
@@ -181,4 +181,5 @@ Update this section after each task with the date, commit/PR, tests run, evidenc
 | 2026-11-02 | C2 agent authentication | PR #27 merged as `cb13b5b1096c79caa8076c72e29a443b962e9f38`; CI run [41461878608](https://github.com/manex-tech/tapproved/actions/runs/41461878608) passed. PR #29 merged as `ef67015a13230e25dfd529a154eb39e9466156c4`; CI run [41464289588](https://github.com/manex-tech/tapproved/actions/runs/41464289588) passed Node, contract and firmware jobs. |
 | 2026-11-02 | C3 idempotency foundation | PR #28 merged as `7500f6a965c06ede443551d2a2d67f5904f260f2`; CI run [41463199393](https://github.com/manex-tech/tapproved/actions/runs/41463199393) passed Node tests, 75 Rust contract tests, Wasm build and ESP32 build. |
 | 2026-11-02 | C4 restricted NEAR agent signer | PR #30 merged as `826fc47c8dd91e9be04d08c3e70acb99cab11615`; CI run [41466515270](https://github.com/manex-tech/tapproved/actions/runs/41466515270) passed Node, contract and firmware jobs. Live signer preflight awaits owner-provisioned FunctionCall key. |
-| 2026-11-02 | C5 automatic execution | PR #31 merged as `501d3b7b0acbe1ae1aecec1ebf0d0fda009b6ca5`; CI run [41469780643](https://github.com/manex-tech/tapproved/actions/runs/41469780643) passed Node, 75 Rust tests, Wasm build and ESP32 firmware. |
+| 2026-11-02 | C5 automatic execution | PR #31 merged; CI run [41469780643](https://github.com/manex-tech/tapproved/actions/runs/41469780643) passed Node, 75 Rust tests, Wasm build and ESP32 firmware. |
+| 2026-11-02 | C6 pending hardware-approval tracking | PR #33 merged as `59873cc671fa6c26a3b208b361d85c0635c5cd50`; CI run [41474877325](https://github.com/manex-tech/tapproved/actions/runs/41474877325) passed Node integration tests, Rust contract tests and Wasm build, and ESP32 firmware builds. Serial delivery remains C7. |
