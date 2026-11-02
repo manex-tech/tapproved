@@ -63,6 +63,8 @@ jobs:
           python-version: "3.12"
       - name: Install PlatformIO
         run: pip install platformio==6.1.18
+      - name: Test exact yoctoNEAR display formatting
+        run: g++ -std=c++17 -Wall -Wextra -Werror -Ifirmware/include firmware/test/amount_format_test.cpp -o /tmp/tapproved-amount-format-test && /tmp/tapproved-amount-format-test
       - name: Build ESP32 firmware
         working-directory: firmware
         run: |
