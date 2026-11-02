@@ -305,7 +305,7 @@ impl Tapproved {
     }
 
     fn store_payment(&mut self, payment: Payment) {
-        self.payments.insert(&payment.id, payment);
+        self.payments.insert(payment.id, payment);
     }
 
     /// Insert a payment after pruning the oldest terminal records when at capacity.
@@ -575,7 +575,7 @@ mod tests {
         };
         c.next_payment_id = 43;
         c.daily_usage.push(DailyUsage { utc_day: FIXTURE_NOW / NANOS_PER_DAY, reserved_yocto: FIXTURE_AMOUNT });
-        c.payments.insert(&42, payment);
+        c.payments.insert(42, payment);
         c.payment_count = 1;
         c.oldest_retained_payment_id = 42;
         c.active_payment_id = Some(42);
@@ -709,7 +709,7 @@ mod tests {
     #[should_panic(expected = "payment is not active")]
     fn replay_after_paid_payment_is_rejected() {
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
-        { let mut payment = c.payments.get(&42).unwrap(); payment.status = PaymentStatus::Paid; c.store_payment(payment); }
+        { let mut payment = c.payments.get(&42).unwrap().clone(); payment.status = PaymentStatus::Paid; c.store_payment(payment); }
         c.active_payment_id = None;
         let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
     }
@@ -795,7 +795,7 @@ mod tests {
     #[should_panic(expected = "payment history is full; oldest payment is not terminal")]
     fn retention_never_prunes_nonterminal_payment() {
         let mut c = request_contract(FIXTURE_NOW);
-        c.payments.insert(&1, Payment { id: 1, agent_id: account("agent.testnet"), recipient_id: account("merchant.testnet"), amount_yocto: 5, nonce: 1, created_at_ns: FIXTURE_NOW, expires_at_ns: FIXTURE_EXPIRY, status: PaymentStatus::Pending, hardware_approved: false });
+        c.payments.insert(1, Payment { id: 1, agent_id: account("agent.testnet"), recipient_id: account("merchant.testnet"), amount_yocto: 5, nonce: 1, created_at_ns: FIXTURE_NOW, expires_at_ns: FIXTURE_EXPIRY, status: PaymentStatus::Pending, hardware_approved: false });
         c.payment_count = MAX_RETAINED_PAYMENTS;
         c.oldest_retained_payment_id = 1;
         c.insert_payment(Payment {
