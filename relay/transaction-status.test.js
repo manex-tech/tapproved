@@ -92,3 +92,41 @@ test("rejects transaction results from a different signer", async () => {
     /invalid transaction status/
   );
 });
+
+
+test("rejects transactions outside the canonical contract or with extra actions", async () => {
+  const valid = {
+    transaction: {
+      hash,
+      signer_id: "manex-agent.testnet",
+      receiver_id: "other.testnet",
+      actions: [{ FunctionCall: { method_name: "approve_spend" } }]
+    },
+    status: { SuccessValue: "" }
+  };
+  await assert.rejects(
+    getTransactionStatus(hash, {
+      env: {},
+      fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ result: valid }) })
+    }),
+    /invalid transaction status/
+  );
+  const extraAction = {
+    ...valid,
+    transaction: {
+      ...valid.transaction,
+      receiver_id: "manextech.testnet",
+      actions: [
+        { FunctionCall: { method_name: "approve_spend" } },
+        { Transfer: { deposit: "1" } }
+      ]
+    }
+  };
+  await assert.rejects(
+    getTransactionStatus(hash, {
+      env: {},
+      fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ result: extraAction }) })
+    }),
+    /invalid transaction status/
+  );
+});
