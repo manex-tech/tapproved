@@ -278,6 +278,10 @@ export function createRelayServer(options = {}) {
         send(response, 401, { error: "unauthorized" }, { "www-authenticate": "Bearer" });
         return;
       }
+      if (!isValidTransactionHash(transactionMatch[1])) {
+        send(response, 400, { error: "invalid_transaction_hash" });
+        return;
+      }
       const waitUntil = requestUrl.searchParams.get("wait_until") ?? "NONE";
       try {
         const result = await readTransactionStatus(transactionMatch[1], {
