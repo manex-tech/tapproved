@@ -377,3 +377,15 @@ test("rejects invalid hardware approval IDs and signatures before submitting", a
   await assert.rejects(signer.approveSpend("9007199254740992", "ab".repeat(64)), /safe JSON integer range/);
   assert.equal(calls, 0);
 });
+
+
+test("accepts the exact legacy method set for automatic spending compatibility", () => {
+  const legacy = accessKey({
+    FunctionCall: {
+      ...restrictedPermission.FunctionCall,
+      method_names: ["request_spend", "execute_approved_spend"]
+    }
+  });
+  const result = validateAgentFunctionCallKey(legacy, publicKey, CANONICAL_CONTRACT_ID);
+  assert.deepEqual(result.method_names, ["request_spend", "execute_approved_spend"]);
+});
