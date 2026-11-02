@@ -5,7 +5,7 @@ import { getPayment } from "./near-rpc.js";
 export const CANONICAL_NETWORK = "testnet";
 export const CANONICAL_CONTRACT_ID = "manextech.testnet";
 export const CANONICAL_AGENT_ID = "manex-agent.testnet";
-export const REQUEST_SPEND_METHODS = Object.freeze(["request_spend", "execute_approved_spend"]);
+export const AGENT_ALLOWED_METHODS = Object.freeze(["request_spend", "execute_approved_spend", "approve_spend"]);
 export const MAX_SIGNER_ALLOWANCE_YOCTO = 5n * 10n ** 24n;
 
 export class SignerConfigurationError extends Error {
@@ -64,9 +64,9 @@ export function validateAgentFunctionCallKey(accessKeyList, expectedPublicKey, c
   }
   const methodNames = functionCall.method_names;
   if (!Array.isArray(methodNames) ||
-      methodNames.length !== REQUEST_SPEND_METHODS.length ||
-      methodNames.some((method, index) => method !== REQUEST_SPEND_METHODS[index])) {
-    throw new SignerConfigurationError("agent signer key must be restricted to request_spend and execute_approved_spend only");
+      methodNames.length !== AGENT_ALLOWED_METHODS.length ||
+      methodNames.some((method, index) => method !== AGENT_ALLOWED_METHODS[index])) {
+    throw new SignerConfigurationError("agent signer key must be restricted to request_spend, execute_approved_spend and approve_spend only");
   }
   if (functionCall.allowance === null || functionCall.allowance === undefined) {
     throw new SignerConfigurationError("agent signer key must have a finite gas allowance");
@@ -145,6 +145,47 @@ export async function createNearAgentSigner(options = {}) {
   const publicKey = keyPair.getPublicKey().toString();
   const verifiedKey = validateAgentFunctionCallKey(accessKeyList, publicKey, config.contractId);
 
+  async function approveSpend(paymentId, signatureHex) {
+    if (typeof paymentId !== "string" || !/^[1-9][0-9]*$/.test(paymentId)) {
+      throw new TypeError("payment ID must be a positive canonical decimal string");
+    }
+    const numericId = BigInt(paymentId);
+    if (numericId > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new RangeError("payment ID exceeds the safe JSON integer range for approve_spend");
+    }
+    if (typeof signatureHex !== "string" || !/^[0-9a-f]{128}$/i.test(signatureHex)) {
+      throw new TypeError("hardware signature must be 64-byte hex");
+    }
+
+    const outcome = await account.callFunctionRaw({
+      contractId: config.contractId,
+      methodName: "approve_spend",
+      args: {
+        payment_id: Number(numericId),
+        signature: Array.from(Buffer.from(signatureHex, "hex"))
+      },
+      gas: sdk.teraToGas("30"),
+      deposit: 0n,
+      waitUntil: "FINAL"
+    });
+    const transactionHash = outcome?.transaction_outcome?.id ?? outcome?.transaction?.hash;
+    if (typeof transactionHash !== "string" || transactionHash.length === 0) {
+      throw new Error("NEAR approve_spend did not return a transaction hash");
+    }
+
+    const payment = await (options.getPayment ?? getPayment)(
+      paymentId,
+      { env, fetchImpl: options.fetchImpl }
+    );
+    if (!payment || payment.id !== paymentId ||
+        payment.agent_id !== CANONICAL_AGENT_ID ||
+        !["processing", "paid", "failed"].includes(payment.status) ||
+        payment.hardware_approved !== true) {
+      throw new Error("NEAR approve_spend did not produce the expected hardware-approved payment state");
+    }
+    return { transaction_hash: transactionHash, payment };
+  }
+
   async function requestSpend(input) {
     const payment = validatePaymentRequest(input);
     const requestOutcome = await account.callFunctionRaw({
@@ -199,6 +240,7 @@ export async function createNearAgentSigner(options = {}) {
 
   return Object.freeze({
     requestSpend,
+    approveSpend,
     signerAccountId: config.agentId,
     contractId: config.contractId,
     networkId: config.networkId,
