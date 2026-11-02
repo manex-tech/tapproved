@@ -4,6 +4,7 @@
 #include <Ed25519.h>
 #include <esp_system.h>
 #include <cstring>
+#include "amount_format.h"
 
 namespace {
 constexpr uint8_t APPROVAL_BUTTON_PIN = 25;
@@ -196,13 +197,23 @@ void handleRequest(const char* line) {
     return;
   }
 
-  Serial.println("\n=== PAYMENT APPROVAL REQUEST ===");
-  Serial.printf("Contract: %s\n", doc["contract_id"].as<const char*>());
-  Serial.printf("Network:  %s\n", doc["network_id"].as<const char*>());
-  Serial.printf("Payment:  %s\n", doc["payment_id"].as<const char*>());
-  Serial.printf("Recipient: %s\n", doc["recipient_id"].as<const char*>());
-  Serial.printf("Amount:   %s yoctoNEAR\n", doc["amount_yocto"].as<const char*>());
-  Serial.printf("Expires:  %s ns\n", doc["expires_at_ns"].as<const char*>());
+  const char* amount_yocto = doc["amount_yocto"] | "";
+  char amount_display[64];
+  if (!formatYoctoNear(amount_yocto, amount_display, sizeof(amount_display))) {
+    printEnvelopeError(request_id, "invalid_amount_display");
+    memset(message, 0, sizeof(message));
+    return;
+  }
+
+  Serial.println("\n=== PAYMENT APPROVAL SUMMARY ===");
+  Serial.printf("Payment ID: %s\n", doc["payment_id"].as<const char*>());
+  Serial.printf("Recipient:  %s\n", doc["recipient_id"].as<const char*>());
+  Serial.printf("Amount:     %s\n", amount_display);
+  Serial.printf("Exact:      %s yoctoNEAR\n", amount_yocto);
+  Serial.printf("Contract:   %s\n", doc["contract_id"].as<const char*>());
+  Serial.printf("Network:    %s\n", doc["network_id"].as<const char*>());
+  Serial.printf("Expires at: %s ns\n", doc["expires_at_ns"].as<const char*>());
+  Serial.println("USB serial output is host-controlled and is NOT a trusted display.");
   Serial.println("Press and release the physical APPROVE button to sign.");
   Serial.println("Wait 30 seconds to reject.");
 
