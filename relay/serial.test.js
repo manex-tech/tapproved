@@ -193,6 +193,12 @@ test("ignores a late response for a previous request while a new request is pend
   assert.notEqual(firstRequest.request_id, secondRequest.request_id);
 
   port.receive(JSON.stringify({
+    frame_version: 1,
+    request_id: firstRequest.request_id,
+    error: "late_device_error"
+  }) + "\n");
+  assert.equal(bridge.pending, true);
+  port.receive(JSON.stringify({
     ...signed,
     frame_version: 1,
     request_id: firstRequest.request_id
@@ -218,7 +224,7 @@ test("rejects a correlated device error response and clears the pending request"
       frame_version: 1,
       request_id: request.request_id,
       error: "invalid_or_wrong_network_request"
-    }) + "\\n");
+    }) + "\n");
   };
   await assert.rejects(
     bridge.requestApproval(payment),
@@ -242,13 +248,13 @@ test("approval timeout clears pending state and ignores the late timed-out respo
     ...signed,
     frame_version: 1,
     request_id: expiredRequest.request_id
-  }) + "\\n");
+  }) + "\n");
   assert.equal(bridge.pending, true);
   port.receive(JSON.stringify({
     ...signed,
     frame_version: 1,
     request_id: nextRequest.request_id
-  }) + "\\n");
+  }) + "\n");
   const result = await next;
   assert.equal(result.signature_hex, signed.signature_hex);
   await bridge.disconnect();
