@@ -359,7 +359,7 @@ impl Tapproved {
     /// original UTC-day bucket, not from the caller's current day.
     pub fn expire_payment(&mut self, payment_id: u64) {
         let now = env::block_timestamp();
-        let payment = self.payments.get(&payment_id).unwrap_or_else(|| env::panic_str("payment not found"));
+        let payment = self.payments.get(&payment_id).cloned().unwrap_or_else(|| env::panic_str("payment not found"));
         if self.active_payment_id != Some(payment_id) {
             env::panic_str("payment is not active");
         }
