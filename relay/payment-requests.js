@@ -224,36 +224,6 @@ export class JsonIdempotencyStore {
     });
   }
 
-  async reconcileSubmitted(agentId, idempotencyKey, payment) {
-    return this.#exclusive(async () => {
-      await this.#load();
-      const record = this.#records.get(recordId(agentId, idempotencyKey));
-      if (!record) throw new IdempotencyStoreError("idempotency reservation does not exist");
-      if (record.state === "submitted") return structuredClone(record);
-      if (!["reserved", "submitting", "uncertain"].includes(record.state)) {
-        throw new IdempotencyStoreError("payment request is not recoverable");
-      }
-      if (!payment || typeof payment !== "object" ||
-          payment.agent_id !== agentId ||
-          typeof payment.id !== "string" || !/^[0-9]+$/.test(payment.id) ||
-          BigInt(payment.id) > BigInt(Number.MAX_SAFE_INTEGER) ||
-          payment.recipient_id !== record.payment?.recipient_id ||
-          payment.amount_yocto !== record.payment?.amount_yocto ||
-          !["pending", "approved", "processing", "paid", "failed", "expired", "cancelled"].includes(payment.status)) {
-        throw new IdempotencyStoreError("contract payment does not match the unresolved request");
-      }
-      record.state = "submitted";
-      record.updated_at = new Date().toISOString();
-      record.result = {
-        transaction_hash: null,
-        execution_transaction_hash: null,
-        payment: structuredClone(payment),
-        recovered: true
-      };
-      await this.#persist();
-      return structuredClone(record);
-    });
-  }
 
   async beginOperation(agentId, paymentId, kind) {
     if (typeof agentId !== "string" || !ACCOUNT_ID.test(agentId) ||
