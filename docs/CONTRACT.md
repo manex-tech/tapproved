@@ -25,7 +25,7 @@ Only the registered agent may call `request_spend`. The contract rejects request
 
 The amount is reserved against its creation UTC day at request time. The daily limit is enforced against committed spend plus outstanding reservations. A request at or below the soft limit enters `approved`; a request above the soft limit and at or below the hard limit enters `pending`. Each payment receives a sequential ID, which is also used as its nonce, and expires five minutes after creation.
 
-Only one payment may be active at a time. This deliberately simple model limits throughput. When a new otherwise-valid request arrives, an expired active `pending` or `approved` payment is automatically expired and its original-day reservation is released before the new request proceeds. An active `processing` payment is never auto-expired.
+Only one payment may be active at a time. This deliberately simple model limits throughput. When a new otherwise-valid request arrives, an expired active `pending` or `approved` payment is automatically expired and its original-day reservation is released before the new request proceeds. An active `processing` payment is never auto-expired. The contract does not deduplicate a logical agent request after an earlier payment reaches a terminal state; the future agent/relay API must provide request idempotency keys so transport retries do not create a second payment.
 
 ## Execution and settlement
 
