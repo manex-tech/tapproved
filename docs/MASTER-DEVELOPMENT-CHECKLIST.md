@@ -4,11 +4,10 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last verified source revision:** `67884ca12b799a029d52f60e445600916dd29cce` (2026-11-02)  
+**Last verified source revision:** `1b95c4ab0fa63638948ef46c7f5d9e310cca003a` (2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
-**Registered agent:** `manex-agent.testnet`  
-**Disposable B10 validation account:** `contract.tapproved-b10-lab.testnet`
+**Registered agent:** `manex-agent.testnet`
 
 ## Operating rules
 
@@ -23,19 +22,15 @@
 
 ## Current checkpoint
 
-**Active task: B10 empirical Testnet callback-gas validation.**
+**Active task: C2 secure agent authentication.**
 
-The B10 code changes are merged. The latest `main` commit is `67884ca12b799a029d52f60e445600916dd29cce`. GitHub Actions run [41430358558](https://github.com/manex-tech/tapproved/actions/runs/41430358558) passed Node checks, 75 Rust contract tests, the release Wasm build and the ESP32 firmware build.
+The disposable B10 lab firmware branch was merged as PR #26, but the lab account is no longer the target architecture. Development is consolidated around the canonical Testnet contract `manextech.testnet` and registered agent `manex-agent.testnet`. Do not initialize, deploy over, or transfer funds from the canonical contract during implementation. The existing deployed contract's storage-layout compatibility must be assessed before any final redeployment decision.
 
-The deployable artifact `tapproved-contract-wasm.zip` contains `tapproved_contract.wasm` and `SHA256SUMS.txt`. The Wasm SHA-256 verified from the downloaded archive is:
+B10 empirical callback-gas validation is deferred until the final deployment/testing stage. Its 30 TGas callback allocation and recovery implementation remain in the contract; actual Testnet receipt gas evidence is still outstanding.
 
-```
-584038d15014c42835dd55b5b954e084d189a1eb1449f3c1e5b732cead56f3c6
-```
+**C1 completed:** [Relay architecture and trust boundaries](RELAY-ARCHITECTURE.md) defines the agent, relay, signer, contract, serial bridge and ESP32 boundaries; API contract; secret configuration; lifecycle and failure invariants. This is a design baseline, not a claim that these components are implemented.
 
-The fresh disposable account `contract.tapproved-b10-lab.testnet` was created and its account summary showed 1 NEAR, no contract code and one full-access key. **The contract has not been deployed or initialized there.** The next action is to verify the user's extracted Wasm and checksum, then present the exact deployment plan and obtain explicit approval before any on-chain change.
-
-B10 is not fully complete until callback gas is measured from actual Testnet receipts. A unit-test gas measurement is not empirical Testnet evidence.
+`main` remains at `1b95c4ab0fa63638948ef46c7f5d9e310cca003a`; the current implementation branch is `feat/phase-c-relay-foundation`.
 
 ## Phase A: Repository consistency and documentation
 
@@ -70,7 +65,7 @@ B10 is not fully complete until callback gas is measured from actual Testnet rec
 
 ## Phase C: Relay and backend orchestration
 
-- [ ] **C1.** Design relay/backend architecture and trust boundaries.
+- [x] **C1.** Design relay/backend architecture and trust boundaries. Documented in [RELAY-ARCHITECTURE.md](RELAY-ARCHITECTURE.md); implementation boundaries and security invariants reviewed against current source.
 - [ ] **C2.** Implement secure agent authentication.
 - [ ] **C3.** Submit agent spending requests.
 - [ ] **C4.** Submit contract transactions through a controlled signer flow.
@@ -181,4 +176,5 @@ Update this section after each task with the date, commit/PR, tests run, evidenc
 
 | Date | Task | Result / evidence |
 |---|---|---|
-| 2026-11-02 | B10 implementation and B12 CI verification | PR #24 merged as `67884ca12b799a029d52f60e445600916dd29cce`; CI run [41430358558](https://github.com/manex-tech/tapproved/actions/runs/41430358558), 75 Rust tests passed; empirical Testnet callback-gas measurement still pending. |
+| 2026-11-02 | B10 implementation and B12 CI verification | PR #24 merged as `67884ca12b799a029d52f60e445600916dd29cce`; CI run [41430358558](https://github.com/manex-tech/tapproved/actions/runs/41430358558), 75 Rust tests passed; empirical Testnet callback-gas measurement deferred to final deployment validation. |
+| 2026-11-02 | C1 relay architecture | Added `docs/RELAY-ARCHITECTURE.md` on `feat/phase-c-relay-foundation`; design reviewed against current relay, contract, protocol and firmware source. No runtime code or on-chain state changed. |
