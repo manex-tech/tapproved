@@ -191,3 +191,85 @@ test("payment endpoint refuses to mutate when signer adapter is not configured",
     });
   });
 });
+
+
+test("pending-approvals endpoint returns only a contract-pending payment", async () => {
+  const pendingPayment = {
+    id: "15",
+    agent_id: "manex-agent.testnet",
+    recipient_id: "merchant.testnet",
+    amount_yocto: "1000000000000000000000",
+    nonce: "15",
+    created_at_ns: "1793519412345678901",
+    expires_at_ns: "1793519712345678901",
+    status: "pending",
+    hardware_approved: false
+  };
+  let reads = 0;
+  await withServer({
+    ...authOptions(),
+    getActivePayment: async () => { reads += 1; return pendingPayment; }
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/pending-approvals`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      network: "testnet",
+      contract_id: "manextech.testnet",
+      approval_required: true,
+      payment: pendingPayment
+    });
+    assert.equal(reads, 1);
+  });
+});
+
+test("pending-approvals endpoint excludes approved, processing and absent payments", async () => {
+  for (const activePayment of [
+    { id: "1", status: "approved" },
+    { id: "2", status: "processing" },
+    null
+  ]) {
+    await withServer({
+      ...authOptions(),
+      getActivePayment: async () => activePayment
+    }, async (base) => {
+      const response = await fetch(`${base}/v1/pending-approvals`, {
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        network: "testnet",
+        contract_id: "manextech.testnet",
+        approval_required: false,
+        payment: null
+      });
+    });
+  }
+});
+
+test("pending-approvals endpoint requires agent authentication before RPC access", async () => {
+  let reads = 0;
+  await withServer({
+    ...authOptions(),
+    getActivePayment: async () => { reads += 1; return { id: "1", status: "pending" }; }
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/pending-approvals`);
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).error, "unauthorized");
+    assert.equal(reads, 0);
+  });
+});
+
+test("pending-approvals endpoint reports RPC failures without leaking details", async () => {
+  await withServer({
+    ...authOptions(),
+    getActivePayment: async () => { throw new Error("private RPC error details"); }
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/pending-approvals`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: "near_rpc_failed" });
+  });
+});
