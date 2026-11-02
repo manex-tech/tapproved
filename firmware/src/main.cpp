@@ -21,7 +21,6 @@ constexpr size_t MAX_MESSAGE_SIZE = tapproved_protocol::MAX_APPROVAL_MESSAGE_SIZ
 constexpr size_t MAX_SERIAL_LINE_BYTES = 2048;
 
 Preferences preferences;
-uint8_t private_seed[32];
 uint8_t public_key[32];
 bool key_ready = false;
 char serial_line[MAX_SERIAL_LINE_BYTES + 1];
@@ -100,6 +99,7 @@ bool encodeApproval(const JsonDocument& doc, uint8_t* out, size_t& out_len) {
 }
 
 bool loadOrCreateKey() {
+  ZeroizingBuffer<32> seed;
   if (!preferences.begin(NVS_NAMESPACE, false)) return false;
 
   const bool key_exists = preferences.isKey(NVS_SEED_KEY);
@@ -107,11 +107,10 @@ bool loadOrCreateKey() {
   const KeyRecordAction action = decideKeyRecordAction(
     key_exists,
     stored_length,
-    sizeof(private_seed)
+    seed.size()
   );
 
   if (action == KeyRecordAction::RejectMalformed) {
-    memset(private_seed, 0, sizeof(private_seed));
     preferences.end();
     return false;
   }
@@ -119,32 +118,51 @@ bool loadOrCreateKey() {
   if (action == KeyRecordAction::LoadExisting) {
     const size_t loaded = preferences.getBytes(
       NVS_SEED_KEY,
-      private_seed,
-      sizeof(private_seed)
+      seed.data(),
+      seed.size()
     );
-    if (loaded != sizeof(private_seed)) {
-      memset(private_seed, 0, sizeof(private_seed));
+    if (loaded != seed.size()) {
       preferences.end();
       return false;
     }
   } else {
-    esp_fill_random(private_seed, sizeof(private_seed));
+    esp_fill_random(seed.data(), seed.size());
     const size_t written = preferences.putBytes(
       NVS_SEED_KEY,
-      private_seed,
-      sizeof(private_seed)
+      seed.data(),
+      seed.size()
     );
-    if (written != sizeof(private_seed)) {
-      memset(private_seed, 0, sizeof(private_seed));
+    if (written != seed.size()) {
       preferences.end();
       return false;
     }
   }
 
   preferences.end();
-  Ed25519::derivePublicKey(public_key, private_seed);
+  Ed25519::derivePublicKey(public_key, seed.data());
   key_ready = true;
   return true;
+}
+
+bool loadExistingKey(uint8_t* output_seed, size_t output_size) {
+  if (!output_seed || output_size != 32) return false;
+  if (!preferences.begin(NVS_NAMESPACE, true)) return false;
+
+  const bool key_exists = preferences.isKey(NVS_SEED_KEY);
+  const size_t stored_length = preferences.getBytesLength(NVS_SEED_KEY);
+  const KeyRecordAction action = decideKeyRecordAction(
+    key_exists,
+    stored_length,
+    output_size
+  );
+  if (action != KeyRecordAction::LoadExisting) {
+    preferences.end();
+    return false;
+  }
+
+  const size_t loaded = preferences.getBytes(NVS_SEED_KEY, output_seed, output_size);
+  preferences.end();
+  return loaded == output_size;
 }
 
 void printHex(const uint8_t* bytes, size_t length) {
@@ -213,8 +231,26 @@ void handleRequest(const char* line) {
     return;
   }
 
+  ZeroizingBuffer<32> signing_seed;
+  ZeroizingBuffer<32> signing_public_key;
+  if (!loadExistingKey(signing_seed.data(), signing_seed.size())) {
+    printEnvelopeError(request_id, "device_key_unavailable");
+    return;
+  }
+  Ed25519::derivePublicKey(signing_public_key.data(), signing_seed.data());
+  if (memcmp(signing_public_key.data(), public_key, sizeof(public_key)) != 0) {
+    printEnvelopeError(request_id, "device_key_identity_mismatch");
+    return;
+  }
+
   ZeroizingBuffer<64> signature;
-  Ed25519::sign(signature.data(), private_seed, public_key, message.data(), message_len);
+  Ed25519::sign(
+    signature.data(),
+    signing_seed.data(),
+    signing_public_key.data(),
+    message.data(),
+    message_len
+  );
   Serial.printf("{\"frame_version\":1,\"request_id\":\"%s\",\"status\":\"signed\",\"public_key_hex\":\"", request_id);
   printHex(public_key, sizeof(public_key));
   Serial.print("\",\"signature_hex\":\"");
