@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last inspected implementation revision:** `599b35f8f1b11c97f26e8142a0c9a5649a7af8ce` (D11 ephemeral private-key RAM lifecycle and ESP32 security assessment merge, 2026-11-02)  
+**Last inspected implementation revision:** `b79b4d1112dd273d36ecde87e38cf9b595a92587` (D12 device-key rotation verification merge, 2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -22,7 +22,9 @@
 
 ## Current checkpoint
 
-**Active task: D12 test device-key rotation.**
+**Active task: D13 test disconnection, reset and power-loss behavior.**
+
+**D12 completed:** PR [#56](https://github.com/manex-tech/tapproved/pull/56) merged as `b79b4d1112dd273d36ecde87e38cf9b595a92587`; CI run [41520953304](https://github.com/manex-tech/tapproved/actions/runs/41520953304) passed all three jobs. The contract suite passed 77 tests, including new cases proving that the owner-rotated key appears in `get_policy`, can approve an existing pending payment, and invalidates signatures from the previous key. Tests also confirm rotation preserves pending payment state and its daily reservation. Added [DEVICE-KEY-ROTATION.md](DEVICE-KEY-ROTATION.md), documenting the safe operator sequence and the need to drain pending approvals. No live Testnet rotation, payment, firmware flash, NVS erase or hardware modification was performed.
 
 **D11 completed:** PR [#55](https://github.com/manex-tech/tapproved/pull/55) merged as `599b35f8f1b11c97f26e8142a0c9a5649a7af8ce`; CI run [41519115081](https://github.com/manex-tech/tapproved/actions/runs/41519115081) passed all three jobs: Node, contract tests/Wasm build and ESP32 firmware build. The global private seed was removed; firmware now uses scope-bound zeroizing buffers, reloads the NVS seed only after fresh physical approval, re-derives and checks the device identity before signing. Added [ESP32-SECURITY-ASSESSMENT.md](ESP32-SECURITY-ASSESSMENT.md), documenting the source-level posture, silicon-revision dependency, Secure Boot/Flash Encryption/NVS encryption distinctions, JTAG/UART download considerations and production gates. No hardware eFuse, flash-encryption, debug-interface configuration, firmware flashing or on-chain action was performed. Physical silicon/eFuse state remains uninspected; ordinary NVS is not encrypted by this change.
 
@@ -103,7 +105,7 @@ C12 is complete and merged in [PR #43](https://github.com/manex-tech/tapproved/p
 - [x] **D9.** Handle device errors and timeouts safely. PR #53 merged as `4099118039a2d343cfc2b8b5c27c6af801a0da31`; CI run [41514804700](https://github.com/manex-tech/tapproved/actions/runs/41514804700) passed all three jobs. Firmware message/signature working buffers use non-copyable scope-bound volatile zeroization, including malformed-frame, formatting-error, physical timeout and successful-signing exits. Relay tests cover correlated device errors, timeout clearing, no stale response acceptance and preserved no-retry behavior.
 - [x] **D10.** Review private-key storage in ESP32 NVS. PR #54 merged as `7dcfabe5dda04d3a0c441fe00db4b8dfb55a6e72`; CI run [41515546257](https://github.com/manex-tech/tapproved/actions/runs/41515546257) passed all three jobs. NVS key generation now occurs only when the record is absent. Existing records must be exactly 32 bytes and fully readable; malformed or partial records fail closed without replacement. NVS/flash encryption and the global RAM key lifecycle remain separate hardening work.
 - [x] **D11.** Evaluate secure boot, flash encryption and debug-interface hardening. PR #55 merged as `599b35f8f1b11c97f26e8142a0c9a5649a7af8ce`; CI run [41519115081](https://github.com/manex-tech/tapproved/actions/runs/41519115081) passed Node, contract/Wasm and firmware jobs. Removed the global private seed, introduced short-lived zeroizing key buffers and added a source-level ESP32 security assessment. No eFuses or hardware security settings were changed; physical silicon/eFuse inspection remains outstanding.
-- [ ] **D12.** Test device-key rotation.
+- [x] **D12.** Test device-key rotation. PR #56 merged as `b79b4d1112dd273d36ecde87e38cf9b595a92587`; CI run [41520953304](https://github.com/manex-tech/tapproved/actions/runs/41520953304) passed Node, contract/Wasm and firmware jobs. Contract tests verify owner rotation, new-key approval, previous-key rejection, updated `get_policy` output and preservation of pending payment/reservation state. Added `docs/DEVICE-KEY-ROTATION.md`. No live rotation or hardware change was performed.
 - [ ] **D13.** Test disconnection, reset and power-loss behavior.
 
 ## Phase E: End-to-end payment automation
@@ -186,6 +188,7 @@ Update this section after each task with the date, commit/PR, tests run, evidenc
 
 | Date | Task | Result / evidence |
 |---|---|---|
+| 2026-11-02 | D12 device-key rotation verification | PR #56 merged as `b79b4d1112dd273d36ecde87e38cf9b595a92587`; CI run [41520953304](https://github.com/manex-tech/tapproved/actions/runs/41520953304) passed Node, contract/Wasm and firmware jobs. Contract tests passed 77/77, including successful approval by the rotated key and rejection of the previous key; pending payment and reservation state were preserved. Added `docs/DEVICE-KEY-ROTATION.md`. No live Testnet rotation or hardware modification occurred. |
 | 2026-11-02 | D11 ESP32 private-key RAM exposure and security hardening assessment | PR #55 merged as `599b35f8f1b11c97f26e8142a0c9a5649a7af8ce`; CI run [41519115081](https://github.com/manex-tech/tapproved/actions/runs/41519115081) passed Node, contract/Wasm and firmware jobs. Removed the global private seed, reloaded it only after fresh physical approval into scope-bound zeroizing buffers, verified key identity before signing, and added `docs/ESP32-SECURITY-ASSESSMENT.md`. No eFuse programming, flash-encryption activation, debug lockout, firmware flashing or on-chain action occurred. |
 | 2026-11-02 | D10 ESP32 NVS key-record integrity | PR #54 merged as `7dcfabe5dda04d3a0c441fe00db4b8dfb55a6e72`; CI run [41515546257](https://github.com/manex-tech/tapproved/actions/runs/41515546257) passed Node, contract/Wasm and firmware jobs. Added fail-closed record policy and host tests for absent, valid and malformed seed records. |
 | 2026-11-02 | D9 device errors, timeouts and buffer cleanup | PR #53 merged as `4099118039a2d343cfc2b8b5c27c6af801a0da31`; CI run [41514804700](https://github.com/manex-tech/tapproved/actions/runs/41514804700) passed Node, contract/Wasm and firmware jobs. Added scope-bound volatile zeroization and correlated error/timeout/stale-response tests. |
