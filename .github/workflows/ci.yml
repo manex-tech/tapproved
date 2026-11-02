@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   node:
@@ -30,8 +30,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref || github.ref }}
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -42,25 +40,6 @@ jobs:
       - name: Build contract Wasm
         working-directory: contract
         run: cargo build --target wasm32-unknown-unknown --release
-      - name: Commit generated contract lockfile
-        if: github.event_name == 'pull_request'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add contract/Cargo.lock
-          if git diff --cached --quiet; then
-            echo "Cargo.lock is already committed"
-            exit 0
-          fi
-          git commit -m "chore(contract): add generated Cargo.lock"
-          git push origin "HEAD:${GITHUB_HEAD_REF}"
-      - name: Upload generated Cargo lockfile for review
-        uses: actions/upload-artifact@v4
-        with:
-          name: tapproved-contract-cargo-lock
-          path: contract/Cargo.lock
-          if-no-files-found: error
-          retention-days: 1
       - name: Generate Wasm checksum
         run: sha256sum contract/target/wasm32-unknown-unknown/release/tapproved_contract.wasm > contract/target/wasm32-unknown-unknown/release/SHA256SUMS.txt
       - name: Upload deployable contract artifact
