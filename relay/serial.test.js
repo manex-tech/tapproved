@@ -55,16 +55,16 @@ class FakeSerialPort extends EventEmitter {
 }
 
 function makeBridge(options = {}) {
-  let fakePort;
+  const fakePort = new FakeSerialPort(null);
   const bridge = createSerialBridge({
     path: "COM7",
     portFactory: (config) => {
-      fakePort = new FakeSerialPort(config);
+      fakePort.config = config;
       return fakePort;
     },
     ...options
   });
-  return { bridge, get port() { return fakePort; } };
+  return { bridge, port: fakePort };
 }
 
 test("builds the exact canonical device frame from a pending contract payment", () => {
