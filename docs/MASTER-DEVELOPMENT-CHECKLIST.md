@@ -22,7 +22,7 @@
 
 ## Current checkpoint
 
-**Active task: C7 ESP32 serial communication.**
+**Active task: C8 hardware signature verification and contract submission.**
 
 The disposable B10 lab firmware branch was merged as PR #26, but the lab account is no longer the target architecture. Development is consolidated around the canonical Testnet contract `manextech.testnet` and registered agent `manex-agent.testnet`. Do not initialize, deploy over, or transfer funds from the canonical contract during implementation. The existing deployed contract's storage-layout compatibility must be assessed before any final redeployment decision.
 
