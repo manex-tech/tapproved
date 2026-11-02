@@ -218,12 +218,9 @@ test("operation confirmation requires a contract state appropriate to the operat
       store.confirmOperation(agentId, "74", "approval", "pending"),
       /does not confirm/
     );
-    await assert.rejects(
-      store.confirmOperation(agentId, "75", "expiry", "processing"),
-      /does not confirm/
-    );
     await store.confirmOperation(agentId, "74", "approval", "processing");
-    await store.confirmOperation(agentId, "75", "expiry", "expired");
+    // A concurrently executed payment supersedes an expiry attempt safely.
+    await store.confirmOperation(agentId, "75", "expiry", "processing");
     assert.equal((await store.listUnresolvedOperations(agentId)).length, 0);
   });
 });
