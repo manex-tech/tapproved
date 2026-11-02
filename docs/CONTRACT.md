@@ -64,7 +64,7 @@ Daily accounting uses a `LookupMap` keyed by UTC day for direct record access an
 
 Each record separates `spent_yocto` from `reserved_yocto`. `get_daily_usage(utc_day)` returns `spent_yocto`, `reserved_yocto`, their sum as `used_yocto`, `remaining_yocto`, and `daily_limit_yocto`. A successful settlement moves the payment amount from reserved to spent; failure, expiry and cancellation subtract it from reserved. All additions and subtractions use checked arithmetic.
 
-The current persistent state layout is not compatible with earlier contract layouts. Do not assume an in-place migration exists. A change to Borsh state layout requires a deliberate upgrade/redeployment plan and verified state handling.
+The current persistent state layout is not compatible with earlier contract layouts. Do not assume an in-place migration exists. This daily-accounting change replaces the prior `Vec<DailyUsage>` field with a `LookupMap` plus a bounded day-key index, so it changes the Borsh state layout. The canonical deployed `manextech.testnet` account remains on its previously deployed layout until a separately approved deployment. Do not call this branch's new ABI against the existing account. A fresh contract account is required unless a separately designed and verified migration is implemented. No deployment is performed by this change.
 
 ## Payment states
 
