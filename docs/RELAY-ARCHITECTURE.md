@@ -29,7 +29,7 @@ A compromised relay may delay, replay or misroute messages, but it must not be a
 6. The ESP32 validates contract ID, network ID and numeric encodings, presents recipient and amount over its current serial console, and waits for a physical GPIO25 press. It returns the v1 Ed25519 signature and public key only after approval. Serial output is not a trusted display.
 7. The relay checks the returned public key against `get_policy.device_public_key`, reconstructs the exact v1 message from the contract-derived payment fields, verifies the Ed25519 signature locally, and submits `approve_spend` with the payment ID and 64 signature bytes using a separate FunctionCall key restricted to `approve_spend`. The contract independently verifies the signature against its registered key and its own stored payment fields.
 8. The contract transfer promise and callback determine terminal settlement. The relay observes contract state and transaction receipts; it never marks a payment Paid based only on an RPC submission acknowledgement.
-9. On ambiguous transfer/callback outcomes, the relay leaves the payment Processing, inspects final receipts and alerts the operator. It must not blindly retry a transfer or call owner reconciliation without verified transfer evidence.
+9. The relay persists each transaction hash against the contract payment ID and exposes finality, action outcome, receipt outcomes and gas metrics alongside the contract payment state. The contract remains authoritative for `Paid`, `Failed` and other lifecycle statuses.\n10. On ambiguous transfer/callback outcomes, the relay leaves the payment Processing, inspects final receipts and alerts the operator. It must not blindly retry a transfer or call owner reconciliation without verified transfer evidence.
 
 ## 3. Proposed service boundaries
 
@@ -37,9 +37,10 @@ Keep the implementation modular and testable:
 
 - `relay/config.js`: validated environment configuration, canonical Testnet defaults, signer and serial settings.
 - `relay/auth.js`: agent API authentication, constant-time credential comparison, credential rotation support and authorization middleware.
-- `relay/payment-requests.js`: strict recipient/amount validation, request fingerprinting and a durable JSON idempotency journal. The journal uses atomic replacement and a single-process lock; run one relay writer per journal. It deliberately never automatically resubmits an entry left reserved, submitting or uncertain after a crash. A multi-instance deployment will require a transactional shared database or equivalent distributed lock.
-- `relay/near-rpc.js`: read-only JSON-RPC views and receipt/status queries with request timeouts and strict response validation.
-- `relay/near-signer.js`: isolated request/execution signer plus a separate approval signer, each restricted to exact FunctionCall method sets. No secret key is accepted from HTTP request data.\n- `relay/approval-service.js`: one-cycle pending-payment-to-device-to-contract orchestration. It does not retry ambiguous approval submissions.
+- `relay/payment-requests.js`: strict recipient/amount validation, request fingerprinting and a durable JSON idempotency and payment-transaction journal. The journal uses atomic replacement and a single-process lock; schema v2 records request, automatic-execution and hardware-approval transaction hashes. Run one relay writer per journal. It deliberately never automatically resubmits an entry left reserved, submitting or uncertain after a crash. A multi-instance deployment will require a transactional shared database or equivalent distributed lock.
+- `relay/near-rpc.js`: read-only JSON-RPC views and transaction/receipt status queries with request timeouts, strict response validation and sanitized gas/outcome summaries.
+- `relay/near-signer.js`: isolated request/execution signer plus a separate approval signer, each restricted to exact FunctionCall method sets. No secret key is accepted from HTTP request data.
+- `relay/approval-service.js`: one-cycle pending-payment-to-device-to-contract orchestration. It does not retry ambiguous approval submissions.
 - `relay/contract.js`: typed contract method wrappers, exact decimal-string handling for u64/u128 values, and transaction outcome parsing.
 - `relay/serial.js`: serial port lifecycle, bounded newline-delimited JSON frames (2,048-byte maximum), one outstanding approval at a time, signature-frame shape validation, explicit disconnect/error handling and a bounded approval timeout. Reconnection is explicit; the bridge never retries a physical approval automatically.
 - `relay/orchestrator.js`: payment lifecycle state machine driven by contract observations and serial events.
@@ -51,9 +52,10 @@ The first implementation may use Node.js built-ins and small explicit interfaces
 
 Initial authenticated routes:
 
-- `POST /v1/payment-requests`: create or retrieve an idempotent payment request.\n- `POST /v1/approvals/process`: start one explicit hardware-approval cycle from the active contract-pending payment. The route accepts no caller-supplied payment context, never retries a physical approval, verifies the returned device key/signature locally, then submits `approve_spend`.
+- `POST /v1/payment-requests`: create or retrieve an idempotent payment request.
+- `POST /v1/approvals/process`: start one explicit hardware-approval cycle from the active contract-pending payment. The route accepts no caller-supplied payment context, never retries a physical approval, verifies the returned device key/signature locally, then submits `approve_spend`.
 - `GET /v1/pending-approvals`: implemented authenticated, contract-backed poll for the single active payment when its status is exactly `pending`; returns `payment` plus a device-ready `approval_request` containing canonical contract/network, payment ID, recipient, exact amount, nonce and expiry. Returns null approval fields for absent, approved or processing payments.
-- `GET /v1/payments/:paymentId`: implemented authenticated contract-backed lookup for one payment. Returns the lifecycle status, an `approval_required` flag for `pending`, and a `terminal` flag for `paid`, `failed`, `expired` or `cancelled`. Foreign-agent and missing records return 404; invalid numeric IDs return 400.
+- `GET /v1/payments/:paymentId`: implemented authenticated contract-backed lookup for one payment. Returns the lifecycle status, an `approval_required` flag for `pending`, a `terminal` flag for terminal states, and tracked request/execution/approval transaction receipt summaries. Receipt RPC failures are reported per transaction without suppressing the authoritative contract payment state. Foreign-agent and missing records return 404; invalid numeric IDs return 400.
 - `GET /v1/payments/:paymentId/events`: expose bounded lifecycle events or polling cursor.
 - `GET /health`: process health only; must not expose credentials or private operational details.
 - `GET /ready`: dependency readiness, including configured contract/network and optional serial connection state, without leaking secrets.
