@@ -307,7 +307,7 @@ async function startRelay() {
     console.error(`NEAR agent signer unavailable; payment submissions disabled: ${error.message}`);
   }
 
-  if (process.env.SERIAL_PORT) {
+  if (process.env.SERIAL_PORT && signer?.permission.method_names.includes("approve_spend")) {
     try {
       serialBridge = createSerialBridge();
       await serialBridge.connect();
@@ -324,6 +324,8 @@ async function startRelay() {
       await serialBridge?.disconnect().catch(() => {});
       serialBridge = null;
     }
+  } else if (process.env.SERIAL_PORT && signer) {
+    console.error("ESP32 hardware approvals disabled; update the agent FunctionCall key to include approve_spend.");
   }
 
   const server = createRelayServer({ idempotencyStore, submitPayment, approveHardwarePayment });
