@@ -648,6 +648,30 @@ mod tests {
             .build());
     }
 
+    fn settle_transfer(
+        contract: &mut Tapproved,
+        payment_id: u64,
+        timestamp: u64,
+        result: PromiseResult,
+    ) -> PaymentView {
+        use near_sdk::test_utils::{testing_env_with_promise_results, VMContextBuilder};
+        testing_env_with_promise_results(
+            VMContextBuilder::new()
+                .current_account_id(account("tapproved.testnet"))
+                .predecessor_account_id(account("tapproved.testnet"))
+                .block_timestamp(timestamp)
+                .build(),
+            result,
+        );
+        contract.on_transfer_result(payment_id)
+    }
+
+    fn mark_processing(contract: &mut Tapproved, payment_id: u64) {
+        let mut payment = contract.payments.get(&payment_id).unwrap().clone();
+        payment.status = PaymentStatus::Processing;
+        contract.store_payment(payment);
+    }
+
     fn fixture_contract(public_key: &str) -> Tapproved {
         use near_sdk::test_utils::VMContextBuilder;
         use near_sdk::testing_env;
@@ -867,6 +891,133 @@ mod tests {
         let usage = c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY);
         assert_eq!(usage.spent_yocto.0, 0);
         assert_eq!(usage.reserved_yocto.0, 0);
+    }
+
+    #[test]
+    fn successful_payments_accumulate_spent_usage_without_reservations() {
+        let mut c = request_contract(FIXTURE_NOW);
+        for _ in 0..2 {
+            context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+            let payment = c.request_spend(account("merchant.testnet"), U128(60));
+            mark_processing(&mut c, payment.id.0);
+            let result = settle_transfer(&mut c, payment.id.0, FIXTURE_NOW, PromiseResult::Successful(vec![]));
+            assert_eq!(result.status, PaymentStatus::Paid);
+        }
+        let usage = c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY);
+        assert_eq!(usage.spent_yocto.0, 120);
+        assert_eq!(usage.reserved_yocto.0, 0);
+        assert_eq!(usage.used_yocto.0, 120);
+        assert_eq!(usage.remaining_yocto.0, 30);
+        assert_eq!(c.retained_daily_days.len(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "request exceeds remaining UTC daily limit")]
+    fn successful_spend_consumes_daily_capacity_for_later_requests() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let payment = c.request_spend(account("merchant.testnet"), U128(90));
+        mark_processing(&mut c, payment.id.0);
+        settle_transfer(&mut c, payment.id.0, FIXTURE_NOW, PromiseResult::Successful(vec![]));
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        c.request_spend(account("merchant.testnet"), U128(61));
+    }
+
+    #[test]
+    fn failed_transfer_releases_capacity_for_a_new_request() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let first = c.request_spend(account("merchant.testnet"), U128(90));
+        mark_processing(&mut c, first.id.0);
+        let failed = settle_transfer(&mut c, first.id.0, FIXTURE_NOW, PromiseResult::Failed);
+        assert_eq!(failed.status, PaymentStatus::Failed);
+
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let second = c.request_spend(account("merchant.testnet"), U128(90));
+        assert_eq!(second.status, PaymentStatus::Pending);
+        let usage = c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY);
+        assert_eq!(usage.spent_yocto.0, 0);
+        assert_eq!(usage.reserved_yocto.0, 90);
+    }
+
+    #[test]
+    fn successful_settlement_after_midnight_commits_to_original_utc_day() {
+        let created_at = 6 * NANOS_PER_DAY - 1_000_000_000;
+        let original_day = created_at / NANOS_PER_DAY;
+        let next_day = original_day + 1;
+        let mut c = request_contract(created_at);
+        context_at("agent.testnet", "tapproved.testnet", created_at);
+        let payment = c.request_spend(account("merchant.testnet"), U128(20));
+        mark_processing(&mut c, payment.id.0);
+
+        let settled_at = 6 * NANOS_PER_DAY + 1_000_000_000;
+        let result = settle_transfer(&mut c, payment.id.0, settled_at, PromiseResult::Successful(vec![]));
+        assert_eq!(result.status, PaymentStatus::Paid);
+        assert_eq!(c.get_daily_usage(original_day).spent_yocto.0, 20);
+        assert_eq!(c.get_daily_usage(original_day).reserved_yocto.0, 0);
+        assert_eq!(c.get_daily_usage(next_day).used_yocto.0, 0);
+    }
+
+    #[test]
+    fn expiry_after_midnight_releases_from_original_utc_day() {
+        let created_at = 6 * NANOS_PER_DAY - 1_000_000_000;
+        let original_day = created_at / NANOS_PER_DAY;
+        let next_day = original_day + 1;
+        let mut c = request_contract(created_at);
+        context_at("agent.testnet", "tapproved.testnet", created_at);
+        let payment = c.request_spend(account("merchant.testnet"), U128(20));
+
+        context_at("caller.testnet", "tapproved.testnet", payment.expires_at_ns.0 + 1);
+        c.expire_payment(payment.id.0);
+        assert_eq!(c.get_daily_usage(original_day).reserved_yocto.0, 0);
+        assert_eq!(c.get_daily_usage(next_day).used_yocto.0, 0);
+    }
+
+    #[test]
+    fn owner_cancellation_releases_original_day_reservation() {
+        let created_at = 6 * NANOS_PER_DAY - 1_000_000_000;
+        let original_day = created_at / NANOS_PER_DAY;
+        let mut c = request_contract(created_at);
+        context_at("agent.testnet", "tapproved.testnet", created_at);
+        let payment = c.request_spend(account("merchant.testnet"), U128(20));
+
+        context_at("owner.testnet", "tapproved.testnet", created_at + 2_000_000_000);
+        c.cancel_payment(payment.id.0);
+        assert_eq!(c.get_payment(payment.id.0).unwrap().status, PaymentStatus::Cancelled);
+        assert_eq!(c.get_daily_usage(original_day).reserved_yocto.0, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "payment is not active")]
+    fn repeated_cancellation_cannot_release_the_same_reservation_twice() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let payment = c.request_spend(account("merchant.testnet"), U128(20));
+        context_at("owner.testnet", "tapproved.testnet", FIXTURE_NOW);
+        c.cancel_payment(payment.id.0);
+        c.cancel_payment(payment.id.0);
+    }
+
+    #[test]
+    fn daily_usage_retention_prunes_old_days_and_stays_bounded() {
+        let current_day = 100;
+        let mut c = request_contract(current_day * NANOS_PER_DAY);
+        for day in 10..100 {
+            c.daily_usage.insert(day, DailyUsage { spent_yocto: 1, reserved_yocto: 0 });
+            c.retained_daily_days.push(day);
+        }
+        context_at("agent.testnet", "tapproved.testnet", current_day * NANOS_PER_DAY);
+        c.request_spend(account("merchant.testnet"), U128(5));
+
+        assert_eq!(c.retained_daily_days.len(), MAX_RETAINED_DAILY_DAYS as usize);
+        assert!(!c.retained_daily_days.contains(&10));
+        assert!(c.retained_daily_days.contains(&11));
+        assert!(c.retained_daily_days.contains(&99));
+        assert!(c.retained_daily_days.contains(&100));
+        assert!(c.daily_usage.get(&10).is_none());
+        assert!(c.daily_usage.get(&11).is_some());
+        assert!(c.daily_usage.get(&100).is_some());
+        assert_eq!(c.get_daily_usage(10).used_yocto.0, 0);
     }
 
     #[test]
