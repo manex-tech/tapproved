@@ -7,6 +7,7 @@ use near_sdk::{env, near_bindgen, AccountId, Gas, NearToken, PanicOnDefault, Pro
 const REQUEST_TTL_NS: u64 = 300_000_000_000;
 const NANOS_PER_DAY: u64 = 86_400_000_000_000;
 const MAX_RETAINED_PAYMENTS: u64 = 1_000;
+const MAX_RETAINED_DAILY_DAYS: u64 = 90;
 
 /// Persistent policy and payment authorization state.
 #[near_bindgen]
@@ -26,7 +27,8 @@ pub struct Tapproved {
     payment_count: u64,
     oldest_retained_payment_id: u64,
     active_payment_id: Option<u64>,
-    daily_usage: Vec<DailyUsage>,
+    daily_usage: LookupMap<u64, DailyUsage>,
+    retained_daily_days: Vec<u64>,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,7 +58,7 @@ pub struct Payment {
 
 #[derive(BorshDeserialize, BorshSerialize, Clone)]
 struct DailyUsage {
-    utc_day: u64,
+    spent_yocto: u128,
     reserved_yocto: u128,
 }
 
@@ -93,7 +95,10 @@ pub struct PaymentView {
 #[serde(crate = "near_sdk::serde")]
 pub struct DailyUsageView {
     pub utc_day: U64,
+    pub spent_yocto: U128,
     pub reserved_yocto: U128,
+    pub used_yocto: U128,
+    pub remaining_yocto: U128,
     pub daily_limit_yocto: U128,
 }
 
@@ -129,7 +134,8 @@ impl Tapproved {
             payment_count: 0,
             oldest_retained_payment_id: 1,
             active_payment_id: None,
-            daily_usage: Vec::new(),
+            daily_usage: LookupMap::new(b"d"),
+            retained_daily_days: Vec::new(),
         }
     }
 
@@ -228,18 +234,31 @@ impl Tapproved {
         let now = env::block_timestamp();
         let expiry = now.checked_add(REQUEST_TTL_NS).unwrap_or_else(|| env::panic_str("expiry overflow"));
         let day = now / NANOS_PER_DAY;
-        let current = self.daily_usage.iter().find(|entry| entry.utc_day == day)
-            .map(|entry| entry.reserved_yocto).unwrap_or(0);
-        let next_total = current.checked_add(amount).unwrap_or_else(|| env::panic_str("daily usage overflow"));
+        self.prune_daily_usage(day);
+
+        let indexed = self.retained_daily_days.contains(&day);
+        let existing = self.daily_usage.get(&day).cloned();
+        if indexed != existing.is_some() {
+            env::panic_str("daily usage retention index is inconsistent");
+        }
+        let mut usage = existing.unwrap_or(DailyUsage { spent_yocto: 0, reserved_yocto: 0 });
+        let used = usage.spent_yocto.checked_add(usage.reserved_yocto)
+            .unwrap_or_else(|| env::panic_str("daily usage overflow"));
+        let next_total = used.checked_add(amount)
+            .unwrap_or_else(|| env::panic_str("daily usage overflow"));
         if next_total > self.daily_limit_yocto {
             env::panic_str("request exceeds remaining UTC daily limit");
         }
-
-        if let Some(entry) = self.daily_usage.iter_mut().find(|entry| entry.utc_day == day) {
-            entry.reserved_yocto = next_total;
-        } else {
-            self.daily_usage.push(DailyUsage { utc_day: day, reserved_yocto: amount });
+        usage.reserved_yocto = usage.reserved_yocto.checked_add(amount)
+            .unwrap_or_else(|| env::panic_str("daily reservation overflow"));
+        if !indexed {
+            if self.retained_daily_days.len() as u64 >= MAX_RETAINED_DAILY_DAYS {
+                env::panic_str("daily usage retention index is full");
+            }
+            self.retained_daily_days.push(day);
+            self.retained_daily_days.sort_unstable();
         }
+        self.daily_usage.insert(day, usage);
 
         let id = self.next_payment_id;
         self.next_payment_id = id.checked_add(1).unwrap_or_else(|| env::panic_str("payment id overflow"));
@@ -296,6 +315,7 @@ impl Tapproved {
         if payment.status != PaymentStatus::Processing { env::panic_str("payment is not processing"); }
         match env::promise_result(0) {
             PromiseResult::Successful(_) => {
+                self.commit_reservation(&payment);
                 self.store_payment(Payment { status: PaymentStatus::Paid, ..payment.clone() });
                 emit_payment_event("payment_paid", &payment, None);
             }
@@ -338,12 +358,46 @@ impl Tapproved {
         self.payment_count += 1;
     }
 
+    /// Prune accounting records outside the rolling 90-UTC-day retention window.
+    /// An active payment prevents new requests, so its original day cannot be
+    /// pruned before its reservation is settled or released.
+    fn prune_daily_usage(&mut self, current_day: u64) {
+        let oldest_day = current_day.saturating_sub(MAX_RETAINED_DAILY_DAYS - 1);
+        let mut retained = Vec::with_capacity(self.retained_daily_days.len());
+        for day in self.retained_daily_days.iter().copied() {
+            if day < oldest_day {
+                self.daily_usage.remove(&day);
+            } else {
+                retained.push(day);
+            }
+        }
+        self.retained_daily_days = retained;
+    }
+
     fn release_reservation(&mut self, payment: &Payment) {
         let day = payment.created_at_ns / NANOS_PER_DAY;
-        let usage = self.daily_usage.iter_mut().find(|entry| entry.utc_day == day)
+        let mut usage = self.daily_usage.get(&day).cloned()
             .unwrap_or_else(|| env::panic_str("daily reservation record missing"));
         usage.reserved_yocto = usage.reserved_yocto.checked_sub(payment.amount_yocto)
             .unwrap_or_else(|| env::panic_str("daily reservation accounting underflow"));
+        self.daily_usage.insert(day, usage);
+    }
+
+    /// Convert an outstanding reservation into committed daily spend.
+    fn commit_reservation(&mut self, payment: &Payment) {
+        let day = payment.created_at_ns / NANOS_PER_DAY;
+        let mut usage = self.daily_usage.get(&day).cloned()
+            .unwrap_or_else(|| env::panic_str("daily reservation record missing"));
+        usage.reserved_yocto = usage.reserved_yocto.checked_sub(payment.amount_yocto)
+            .unwrap_or_else(|| env::panic_str("daily reservation accounting underflow"));
+        usage.spent_yocto = usage.spent_yocto.checked_add(payment.amount_yocto)
+            .unwrap_or_else(|| env::panic_str("daily spent accounting overflow"));
+        let used = usage.spent_yocto.checked_add(usage.reserved_yocto)
+            .unwrap_or_else(|| env::panic_str("daily usage overflow"));
+        if used > self.daily_limit_yocto {
+            env::panic_str("daily usage exceeds configured limit");
+        }
+        self.daily_usage.insert(day, usage);
     }
 
     fn transfer_promise(&self, payment: Payment) -> Promise {
@@ -369,13 +423,7 @@ impl Tapproved {
         if payment.status != PaymentStatus::Pending && payment.status != PaymentStatus::Approved {
             env::panic_str("payment is not expirable");
         }
-        let day = payment.created_at_ns / NANOS_PER_DAY;
-        if let Some(usage) = self.daily_usage.iter_mut().find(|entry| entry.utc_day == day) {
-            usage.reserved_yocto = usage.reserved_yocto.checked_sub(payment.amount_yocto)
-                .unwrap_or_else(|| env::panic_str("daily reservation accounting underflow"));
-        } else {
-            env::panic_str("daily reservation record missing");
-        }
+        self.release_reservation(&payment);
         self.store_payment(Payment { status: PaymentStatus::Expired, ..payment.clone() });
         emit_payment_event("payment_expired", &payment, None);
         self.active_payment_id = None;
@@ -390,9 +438,21 @@ impl Tapproved {
     }
 
     pub fn get_daily_usage(&self, utc_day: u64) -> DailyUsageView {
-        let reserved = self.daily_usage.iter().find(|entry| entry.utc_day == utc_day)
-            .map(|entry| entry.reserved_yocto).unwrap_or(0);
-        DailyUsageView { utc_day: U64(utc_day), reserved_yocto: U128(reserved), daily_limit_yocto: U128(self.daily_limit_yocto) }
+        let usage = self.daily_usage.get(&utc_day);
+        let spent = usage.map(|entry| entry.spent_yocto).unwrap_or(0);
+        let reserved = usage.map(|entry| entry.reserved_yocto).unwrap_or(0);
+        let used = spent.checked_add(reserved)
+            .unwrap_or_else(|| env::panic_str("daily usage overflow"));
+        let remaining = self.daily_limit_yocto.checked_sub(used)
+            .unwrap_or_else(|| env::panic_str("daily usage exceeds configured limit"));
+        DailyUsageView {
+            utc_day: U64(utc_day),
+            spent_yocto: U128(spent),
+            reserved_yocto: U128(reserved),
+            used_yocto: U128(used),
+            remaining_yocto: U128(remaining),
+            daily_limit_yocto: U128(self.daily_limit_yocto),
+        }
     }
 }
 
@@ -607,7 +667,9 @@ mod tests {
             expires_at_ns: FIXTURE_EXPIRY, status: PaymentStatus::Pending, hardware_approved: false,
         };
         c.next_payment_id = 43;
-        c.daily_usage.push(DailyUsage { utc_day: FIXTURE_NOW / NANOS_PER_DAY, reserved_yocto: FIXTURE_AMOUNT });
+        let fixture_day = FIXTURE_NOW / NANOS_PER_DAY;
+        c.daily_usage.insert(fixture_day, DailyUsage { spent_yocto: 0, reserved_yocto: FIXTURE_AMOUNT });
+        c.retained_daily_days.push(fixture_day);
         c.payments.insert(42, payment);
         c.payment_count = 1;
         c.oldest_retained_payment_id = 42;
@@ -771,7 +833,9 @@ mod tests {
         let result = c.on_transfer_result(42);
         assert_eq!(result.status, PaymentStatus::Paid);
         assert_eq!(c.active_payment_id, None);
-        assert_eq!(c.daily_usage[0].reserved_yocto, FIXTURE_AMOUNT);
+        let usage = c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY);
+        assert_eq!(usage.spent_yocto.0, FIXTURE_AMOUNT);
+        assert_eq!(usage.reserved_yocto.0, 0);
     }
 
     #[test]
@@ -788,7 +852,9 @@ mod tests {
         let result = c.on_transfer_result(42);
         assert_eq!(result.status, PaymentStatus::Failed);
         assert_eq!(c.active_payment_id, None);
-        assert_eq!(c.daily_usage[0].reserved_yocto, 0);
+        let usage = c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY);
+        assert_eq!(usage.spent_yocto.0, 0);
+        assert_eq!(usage.reserved_yocto.0, 0);
     }
 
     #[test]
@@ -798,7 +864,9 @@ mod tests {
         c.expire_payment(42);
         assert_eq!(c.payments.get(&42).unwrap().status, PaymentStatus::Expired);
         assert_eq!(c.active_payment_id, None);
-        assert_eq!(c.daily_usage[0].reserved_yocto, 0);
+        let usage = c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY);
+        assert_eq!(usage.spent_yocto.0, 0);
+        assert_eq!(usage.reserved_yocto.0, 0);
     }
 
     #[test]
