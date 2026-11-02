@@ -607,3 +607,68 @@ test("recovery route fails closed when reconciliation is not configured", async 
     assert.deepEqual(await response.json(), { error: "recovery_not_configured" });
   });
 });
+
+
+test("HTTP responses expose a correlation ID and emit structured request logs", async () => {
+  const records = [];
+  const logger = {
+    info: (event, fields) => records.push({ level: "info", event, fields }),
+    warn: (event, fields) => records.push({ level: "warn", event, fields }),
+    error: (event, fields) => records.push({ level: "error", event, fields })
+  };
+  await withServer({ ...authOptions(), logger }, async (base) => {
+    const response = await fetch(`${base}/health`);
+    const requestId = response.headers.get("x-request-id");
+    assert.match(requestId, /^[0-9a-f-]{36}$/i);
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setImmediate(resolve));
+    const entry = records.find((record) => record.event === "http.request.completed");
+    assert.ok(entry);
+    assert.equal(entry.fields.request_id, requestId);
+    assert.equal(entry.fields.method, "GET");
+    assert.equal(entry.fields.route, "/health");
+    assert.equal(entry.fields.status, 200);
+  });
+});
+
+test("request logging never includes authorization credentials or query strings", async () => {
+  const records = [];
+  const logger = {
+    info: (event, fields) => records.push({ event, fields }),
+    warn: (event, fields) => records.push({ event, fields }),
+    error: (event, fields) => records.push({ event, fields })
+  };
+  await withServer({ ...authOptions(), logger }, async (base) => {
+    const response = await fetch(`${base}/v1/payments/123?token=do-not-log-this`, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal(response.status, 404);
+    await new Promise((resolve) => setImmediate(resolve));
+    const serialized = JSON.stringify(records);
+    assert.equal(serialized.includes("do-not-log-this"), false);
+    assert.equal(serialized.includes(token), false);
+    assert.equal(serialized.includes("/v1/payments/123"), false);
+    assert.equal(serialized.includes("/v1/payments/:paymentId"), true);
+  });
+});
+
+
+test("invalid payment validation errors do not expose internal exception messages", async () => {
+  await withJournal(async (storePath) => {
+    await withServer({
+      ...authOptions(),
+      idempotencyStore: new JsonIdempotencyStore(storePath),
+      submitPayment: async () => { throw new Error("must not submit invalid input"); }
+    }, async (base) => {
+      const response = await fetch(`${base}/v1/payment-requests`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          "idempotency-key": key
+        },
+        body: JSON.stringify({ recipient_id: "", amount_yocto: "not-a-number" })
+      });
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: "invalid_payment_request" });
+    });
+  });
+});
