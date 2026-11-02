@@ -305,7 +305,7 @@ impl Tapproved {
     }
 
     fn store_payment(&mut self, payment: Payment) {
-        self.payments.insert(payment.id, payment);
+        self.payments.insert(&payment.id, payment);
     }
 
     /// Insert a payment after pruning the oldest terminal records when at capacity.
@@ -321,10 +321,7 @@ impl Tapproved {
                         .unwrap_or_else(|| env::panic_str("payment retention cursor overflow"));
                 }
                 Some(_) => env::panic_str("payment history is full; oldest payment is not terminal"),
-                None => {
-                    self.oldest_retained_payment_id = oldest_id.checked_add(1)
-                        .unwrap_or_else(|| env::panic_str("payment retention cursor overflow"));
-                }
+                None => env::panic_str("payment history retention index is inconsistent"),
             }
         }
         self.store_payment(payment);
@@ -369,7 +366,7 @@ impl Tapproved {
         } else {
             env::panic_str("daily reservation record missing");
         }
-        self.store_payment(Payment { status: PaymentStatus::Expired, ..payment });
+        self.store_payment(Payment { status: PaymentStatus::Expired, ..payment.clone() });
         self.active_payment_id = None;
     }
 
@@ -578,7 +575,7 @@ mod tests {
         };
         c.next_payment_id = 43;
         c.daily_usage.push(DailyUsage { utc_day: FIXTURE_NOW / NANOS_PER_DAY, reserved_yocto: FIXTURE_AMOUNT });
-        c.payments.insert(42, payment);
+        c.payments.insert(&42, payment);
         c.payment_count = 1;
         c.oldest_retained_payment_id = 42;
         c.active_payment_id = Some(42);
@@ -672,15 +669,15 @@ mod tests {
     fn real_esp32_signature_is_accepted() {
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
         let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
-        assert_eq!(c.payments[0].status, PaymentStatus::Processing);
-        assert!(c.payments[0].hardware_approved);
+        assert_eq!(c.payments.get(&42).unwrap().status, PaymentStatus::Processing);
+        assert!(c.payments.get(&42).unwrap().hardware_approved);
     }
 
     #[test]
     #[should_panic(expected = "invalid hardware approval signature")]
     fn tampered_amount_invalidates_signature() {
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
-        { let mut payment = c.payments.get(&42).unwrap(); payment.amount_yocto += 1; c.store_payment(payment); }
+        { let mut payment = c.payments.get(&42).unwrap().clone(); payment.amount_yocto += 1; c.store_payment(payment); }
         let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
     }
 
@@ -749,7 +746,7 @@ mod tests {
         use near_sdk::test_utils::testing_env_with_promise_results;
         use near_sdk::test_utils::VMContextBuilder;
         let mut c = fixture_contract(ESP32_PUBLIC_KEY);
-        c.payments[0].status = PaymentStatus::Processing;
+        { let mut payment = c.payments.get(&42).unwrap().clone(); payment.status = PaymentStatus::Processing; c.store_payment(payment); }
         testing_env_with_promise_results(
             VMContextBuilder::new().current_account_id(account("tapproved.testnet"))
                 .predecessor_account_id(account("tapproved.testnet")).block_timestamp(FIXTURE_NOW).build(),
@@ -798,6 +795,7 @@ mod tests {
     #[should_panic(expected = "payment history is full; oldest payment is not terminal")]
     fn retention_never_prunes_nonterminal_payment() {
         let mut c = request_contract(FIXTURE_NOW);
+        c.payments.insert(&1, Payment { id: 1, agent_id: account("agent.testnet"), recipient_id: account("merchant.testnet"), amount_yocto: 5, nonce: 1, created_at_ns: FIXTURE_NOW, expires_at_ns: FIXTURE_EXPIRY, status: PaymentStatus::Pending, hardware_approved: false });
         c.payment_count = MAX_RETAINED_PAYMENTS;
         c.oldest_retained_payment_id = 1;
         c.insert_payment(Payment {
