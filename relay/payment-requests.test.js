@@ -98,7 +98,7 @@ test("successful submission is replayed without a second submit call", async () 
     let calls = 0;
     const submit = async () => {
       calls += 1;
-      return { transaction_hash: "test-transaction-hash", payment: { id: "7", status: "approved" } };
+      return { transaction_hash: "test-transaction-hash", execution_transaction_hash: "execution-transaction-hash", payment: { id: "7", status: "paid" } };
     };
     const first = await submitIdempotentPaymentRequest({
       store, agentId, idempotencyKey: key, payment, submit
@@ -109,6 +109,7 @@ test("successful submission is replayed without a second submit call", async () 
     assert.equal(first.record.state, "submitted");
     assert.equal(second.replayed, true);
     assert.equal(second.record.result.payment.id, "7");
+    assert.equal(second.record.result.execution_transaction_hash, "execution-transaction-hash");
     assert.equal(calls, 1);
   });
 });
