@@ -12,6 +12,30 @@ The firmware is compiled for the Tapproved NEAR testnet deployment:
 
 The contract ID and network ID are compile-time constants in `src/main.cpp`. If the canonical deployment changes, update those constants, rebuild and flash the firmware, then verify the device signs the exact contract and network values used by the relay and contract.
 
+## Disposable B10 lab deployment
+
+A separate PlatformIO environment targets the disposable B10 validation contract. It inherits the canonical ESP32 board, framework, dependencies, and base build flags, while overriding only the compiled contract ID.
+
+- Contract: `contract.tapproved-b10-lab.testnet`
+- Network: `testnet`
+- Approval button: GPIO25
+
+Build the lab firmware from this directory:
+
+```sh
+pio run -e esp32dev-lab
+```
+
+Build the canonical firmware explicitly:
+
+```sh
+pio run -e esp32dev
+```
+
+**Important:** Never upload the lab firmware for use with the canonical `manextech.testnet` deployment. Verify the selected environment before every upload. To upload the lab build, explicitly use `pio run -e esp32dev-lab --target upload`; to upload the canonical build, use `pio run -e esp32dev --target upload`.
+
+Switching build environments does not erase or regenerate the existing device key in NVS. Both builds use the same firmware key-storage namespace and seed key. The contract ID is a compile-time setting and is not stored in NVS.
+
 ## Build and flash
 
 Install PlatformIO Core, then run from this directory:
