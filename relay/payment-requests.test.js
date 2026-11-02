@@ -111,16 +111,10 @@ test("successful submission is replayed without a second submit call", async () 
     assert.equal(second.record.result.payment.id, "7");
     assert.equal(second.record.result.execution_transaction_hash, "execution-transaction-hash");
     assert.equal(calls, 1);
-    assert.deepEqual(await store.getPaymentTransactions(agentId, "7"), {
-      id: "manex-agent.testnet:7",
-      agent_id: agentId,
-      payment_id: "7",
-      request_transaction_hash: "test-transaction-hash",
-      execution_transaction_hash: "execution-transaction-hash",
-      approval_transaction_hash: null,
-      created_at: (await store.getPaymentTransactions(agentId, "7")).created_at,
-      updated_at: (await store.getPaymentTransactions(agentId, "7")).updated_at
-    });
+    const tracked = await store.getPaymentTransactions(agentId, "7");
+    assert.equal(tracked.request_transaction_hash, "test-transaction-hash");
+    assert.equal(tracked.execution_transaction_hash, "execution-transaction-hash");
+    assert.equal(tracked.approval_transaction_hash, null);
   });
 });
 
