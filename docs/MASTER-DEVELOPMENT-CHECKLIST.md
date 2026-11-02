@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last verified source revision:** `2466bca54d171d6f33bc1114ac62f5d7b4a469c5` (2026-11-02)  
+**Last verified source revision:** `fa85b6e771100f5035d1ba10f6a375783a4f3768` (2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -22,7 +22,7 @@
 
 ## Current checkpoint
 
-**Active task: C7 ESP32 serial communication.**
+**Active task: C8 hardware signature verification and contract submission.**
 
 The disposable B10 lab firmware branch was merged as PR #26, but the lab account is no longer the target architecture. Development is consolidated around the canonical Testnet contract `manextech.testnet` and registered agent `manex-agent.testnet`. Do not initialize, deploy over, or transfer funds from the canonical contract during implementation. The existing deployed contract's storage-layout compatibility must be assessed before any final redeployment decision.
 
@@ -30,7 +30,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 
 **C1 completed:** [Relay architecture and trust boundaries](RELAY-ARCHITECTURE.md) defines the agent, relay, signer, contract, serial bridge and ESP32 boundaries; API contract; secret configuration; lifecycle and failure invariants. This is a design baseline, not a claim that these components are implemented.
 
-`main` is at `2466bca54d171d6f33bc1114ac62f5d7b4a469c5`. PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable idempotency; PR #30 added the restricted NEAR agent signer; PR #31 added automatic execution for contract-approved payments; PR #33 added pending-approval polling and contract-backed payment status reads. The signer code is merged, but live preflight remains blocked until the dedicated FunctionCall key is provisioned on `manex-agent.testnet`.
+`main` is at `fa85b6e771100f5035d1ba10f6a375783a4f3768`. PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable idempotency; PR #30 added the restricted NEAR agent signer; PR #31 added automatic execution for contract-approved payments; PR #33 added pending-approval polling and contract-backed payment status reads. The signer code is merged, but live preflight remains blocked until the dedicated FunctionCall key is provisioned on `manex-agent.testnet`.
 
 ## Phase A: Repository consistency and documentation
 
