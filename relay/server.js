@@ -46,6 +46,7 @@ function transactionStatusResponse(result) {
       gas_burnt: String(transactionOutcome.gas_burnt ?? "0"),
       tokens_burnt: String(transactionOutcome.tokens_burnt ?? "0"),
       status: executionStatusKind(transactionOutcome.status),
+      logs: Array.isArray(transactionOutcome.logs) ? transactionOutcome.logs : [],
       receipt_ids: Array.isArray(transactionOutcome.receipt_ids) ? transactionOutcome.receipt_ids : []
     } : null,
     receipts: receipts.map((receipt) => ({
