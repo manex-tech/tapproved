@@ -253,7 +253,8 @@ test("pending-approvals endpoint excludes approved, processing and absent paymen
         network: "testnet",
         contract_id: "manextech.testnet",
         approval_required: false,
-        payment: null
+        payment: null,
+        approval_request: null
       });
     });
   }
