@@ -208,3 +208,48 @@ test("ignores a late response for a previous request while a new request is pend
   assert.equal(result.signature_hex, signed.signature_hex);
   await bridge.disconnect();
 });
+
+test("rejects a correlated device error response and clears the pending request", async () => {
+  const { bridge, port } = makeBridge();
+  await bridge.connect();
+  port.onWrite = (data) => {
+    const request = JSON.parse(data.toString("utf8"));
+    port.receive(JSON.stringify({
+      frame_version: 1,
+      request_id: request.request_id,
+      error: "invalid_or_wrong_network_request"
+    }) + "\\n");
+  };
+  await assert.rejects(
+    bridge.requestApproval(payment),
+    (error) => error.code === "device_error" && error.message === "invalid_or_wrong_network_request"
+  );
+  assert.equal(bridge.pending, false);
+  await bridge.disconnect();
+});
+
+test("approval timeout clears pending state and ignores the late timed-out response", async () => {
+  const { bridge, port } = makeBridge({ timeoutMs: 1000 });
+  await bridge.connect();
+  const timedOut = bridge.requestApproval(payment);
+  const expiredRequest = JSON.parse(port.writes[0].toString("utf8"));
+  await assert.rejects(timedOut, (error) => error.code === "device_approval_timeout");
+  assert.equal(bridge.pending, false);
+
+  const next = bridge.requestApproval(payment);
+  const nextRequest = JSON.parse(port.writes[1].toString("utf8"));
+  port.receive(JSON.stringify({
+    ...signed,
+    frame_version: 1,
+    request_id: expiredRequest.request_id
+  }) + "\\n");
+  assert.equal(bridge.pending, true);
+  port.receive(JSON.stringify({
+    ...signed,
+    frame_version: 1,
+    request_id: nextRequest.request_id
+  }) + "\\n");
+  const result = await next;
+  assert.equal(result.signature_hex, signed.signature_hex);
+  await bridge.disconnect();
+});
