@@ -1,4 +1,4 @@
-import { getActivePayment } from "./near-rpc.js";
+import { getActivePayment, getLatestBlockTimestampNs } from "./near-rpc.js";
 import { CANONICAL_AGENT_ID, HardwareApprovalError } from "./near-signer.js";
 
 export class ApprovalProcessingError extends Error {
@@ -9,12 +9,36 @@ export class ApprovalProcessingError extends Error {
   }
 }
 
+const U64_MAX = (1n << 64n) - 1n;
+const U128_MAX = (1n << 128n) - 1n;
+const ACCOUNT_ID = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
+
+function isCanonicalUnsigned(value, maximum, positive = false) {
+  if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)) return false;
+  const parsed = BigInt(value);
+  return (!positive || parsed > 0n) && parsed <= maximum;
+}
+
+function validatePendingPayment(payment) {
+  if (!payment || typeof payment !== "object" ||
+      !isCanonicalUnsigned(payment.id, U64_MAX, true) ||
+      !isCanonicalUnsigned(payment.amount_yocto, U128_MAX, true) ||
+      !isCanonicalUnsigned(payment.nonce, U64_MAX) ||
+      !isCanonicalUnsigned(payment.expires_at_ns, U64_MAX, true) ||
+      typeof payment.recipient_id !== "string" ||
+      payment.recipient_id.length < 2 || payment.recipient_id.length > 64 ||
+      !ACCOUNT_ID.test(payment.recipient_id)) {
+    throw new ApprovalProcessingError("invalid_payment_context");
+  }
+}
+
 /**
  * Run one explicit hardware-approval cycle. There is no background retry:
  * the caller must re-observe contract state before requesting another cycle.
  */
 export function createApprovalProcessor(options = {}) {
   const readActivePayment = options.getActivePayment ?? getActivePayment;
+  const readBlockTime = options.getLatestBlockTimestampNs ?? getLatestBlockTimestampNs;
   const serialBridge = options.serialBridge;
   const approvalSigner = options.approvalSigner;
   const operationStore = options.operationStore;
@@ -59,6 +83,7 @@ export function createApprovalProcessor(options = {}) {
           payment_status: payment.status
         };
       }
+      validatePendingPayment(payment);
 
       const previousOperation = await operationStore.getOperation(
         CANONICAL_AGENT_ID,
@@ -68,6 +93,24 @@ export function createApprovalProcessor(options = {}) {
       if (previousOperation && previousOperation.state !== "rejected") {
         throw new ApprovalProcessingError("approval_recovery_required");
       }
+
+      async function assertNotExpired() {
+        let chainTimestampNs;
+        try {
+          chainTimestampNs = await readBlockTime({ env, fetchImpl: options.fetchImpl });
+        } catch {
+          throw new ApprovalProcessingError("finalized_chain_time_unavailable");
+        }
+        if (!isCanonicalUnsigned(chainTimestampNs, U64_MAX)) {
+          throw new ApprovalProcessingError("invalid_finalized_chain_time");
+        }
+        // Match the contract's exact rule: expiry occurs only when chain time > expiry.
+        if (BigInt(chainTimestampNs) > BigInt(payment.expires_at_ns)) {
+          throw new ApprovalProcessingError("payment_expired");
+        }
+      }
+
+      await assertNotExpired();
 
       try {
         await serialBridge.connect();
@@ -83,6 +126,10 @@ export function createApprovalProcessor(options = {}) {
           error?.code || "device_approval_failed"
         );
       }
+
+      // The device may take up to 30 seconds. Recheck finalized chain time
+      // after the physical interaction and immediately before any submission.
+      await assertNotExpired();
 
       const attempt = await operationStore.beginOperation(
         CANONICAL_AGENT_ID,
