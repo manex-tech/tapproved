@@ -10,7 +10,7 @@
     "simulate": "node relay/simulator.js"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.22.2"
   },
   "dependencies": {
     "near-api-js": "7.3.1"
