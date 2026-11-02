@@ -146,8 +146,14 @@ export function createRelayServer(options = {}) {
     response.setHeader("x-request-id", requestId);
     response.once("finish", () => {
       const rawPath = (request.url ?? "/").split("?")[0];
-      const route = rawPath.replace(/^\/v1\/transactions\/[^/]+$/, "/v1/transactions/:hash")
-        .replace(/^\/v1\/payments\/[^/]+$/, "/v1/payments/:paymentId");
+      const staticRoutes = new Set([
+        "/health", "/v1/payment-requests", "/v1/pending-approvals",
+        "/v1/approvals/process", "/v1/recovery/reconcile", "/policy", "/active-payment"
+      ]);
+      const route = staticRoutes.has(rawPath) ? rawPath
+        : /^\/v1\/transactions\/[^/]+$/.test(rawPath) ? "/v1/transactions/:hash"
+        : /^\/v1\/payments\/[0-9]+$/.test(rawPath) ? "/v1/payments/:paymentId"
+        : "/unmatched";
       const fields = {
         request_id: requestId,
         method: request.method ?? "UNKNOWN",
@@ -195,7 +201,7 @@ export function createRelayServer(options = {}) {
         if (error instanceof HttpError) {
           send(response, error.status, { error: error.code });
         } else {
-          send(response, 400, { error: "invalid_payment_request", message: error.message });
+          send(response, 400, { error: "invalid_payment_request" });
         }
         return;
       }

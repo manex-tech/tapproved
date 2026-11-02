@@ -645,5 +645,30 @@ test("request logging never includes authorization credentials or query strings"
     const serialized = JSON.stringify(records);
     assert.equal(serialized.includes("do-not-log-this"), false);
     assert.equal(serialized.includes(token), false);
+    assert.equal(serialized.includes("/v1/payments/123"), false);
+    assert.equal(serialized.includes("/v1/payments/:paymentId"), true);
+  });
+});
+
+
+test("invalid payment validation errors do not expose internal exception messages", async () => {
+  await withJournal(async (storePath) => {
+    await withServer({
+      ...authOptions(),
+      idempotencyStore: new JsonIdempotencyStore(storePath),
+      submitPayment: async () => { throw new Error("must not submit invalid input"); }
+    }, async (base) => {
+      const response = await fetch(`${base}/v1/payment-requests`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          "idempotency-key": key
+        },
+        body: JSON.stringify({ recipient_id: "", amount_yocto: "not-a-number" })
+      });
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: "invalid_payment_request" });
+    });
   });
 });
