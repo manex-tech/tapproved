@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { callViewMethod, getActivePayment, getPolicy } from "./near-rpc.js";
+import { callViewMethod, getActivePayment, getPayment, getPolicy } from "./near-rpc.js";
 
 function mockFetch(resultValue, capture = {}) {
   return async (url, init) => {
@@ -73,4 +73,18 @@ test("surfaces RPC errors", async () => {
     }),
     /contract not found/
   );
+});
+
+
+test("queries a payment by its exact decimal ID", async () => {
+  const capture = {};
+  const payment = { id: "43", status: "paid" };
+  const result = await getPayment("43", { env: {}, fetchImpl: mockFetch(payment, capture) });
+  assert.deepEqual(result, payment);
+  assert.equal(capture.request.params.method_name, "get_payment");
+  assert.deepEqual(JSON.parse(Buffer.from(capture.request.params.args_base64, "base64").toString()), {
+    payment_id: 43
+  });
+  await assert.rejects(getPayment("not-a-number"), /decimal string/);
+  await assert.rejects(getPayment("9007199254740992"), /safe JSON integer range/);
 });

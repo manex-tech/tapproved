@@ -232,6 +232,7 @@ export async function submitIdempotentPaymentRequest({
     const result = await submit(normalizedPayment);
     const safeResult = {
       transaction_hash: typeof result?.transaction_hash === "string" ? result.transaction_hash : null,
+      execution_transaction_hash: typeof result?.execution_transaction_hash === "string" ? result.execution_transaction_hash : null,
       payment: result?.payment && typeof result.payment === "object" ? result.payment : null
     };
     const record = await store.transition(agentId, normalizedKey, "submitted", safeResult);

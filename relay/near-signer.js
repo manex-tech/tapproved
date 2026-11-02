@@ -1,10 +1,11 @@
 import { Account, JsonRpcProvider, KeyPair, teraToGas } from "near-api-js";
 import { validatePaymentRequest } from "./payment-requests.js";
+import { getPayment } from "./near-rpc.js";
 
 export const CANONICAL_NETWORK = "testnet";
 export const CANONICAL_CONTRACT_ID = "manextech.testnet";
 export const CANONICAL_AGENT_ID = "manex-agent.testnet";
-export const REQUEST_SPEND_METHODS = Object.freeze(["request_spend"]);
+export const REQUEST_SPEND_METHODS = Object.freeze(["request_spend", "execute_approved_spend"]);
 export const MAX_SIGNER_ALLOWANCE_YOCTO = 5n * 10n ** 24n;
 
 export class SignerConfigurationError extends Error {
@@ -65,7 +66,7 @@ export function validateAgentFunctionCallKey(accessKeyList, expectedPublicKey, c
   if (!Array.isArray(methodNames) ||
       methodNames.length !== REQUEST_SPEND_METHODS.length ||
       methodNames.some((method, index) => method !== REQUEST_SPEND_METHODS[index])) {
-    throw new SignerConfigurationError("agent signer key must be restricted to request_spend only");
+    throw new SignerConfigurationError("agent signer key must be restricted to request_spend and execute_approved_spend only");
   }
   if (functionCall.allowance === null || functionCall.allowance === undefined) {
     throw new SignerConfigurationError("agent signer key must have a finite gas allowance");
@@ -146,7 +147,7 @@ export async function createNearAgentSigner(options = {}) {
 
   async function requestSpend(input) {
     const payment = validatePaymentRequest(input);
-    const outcome = await account.callFunctionRaw({
+    const requestOutcome = await account.callFunctionRaw({
       contractId: config.contractId,
       methodName: "request_spend",
       args: {
@@ -157,7 +158,43 @@ export async function createNearAgentSigner(options = {}) {
       deposit: 0n,
       waitUntil: "FINAL"
     });
-    return decodePaymentView(outcome, payment);
+    const requested = decodePaymentView(requestOutcome, payment);
+    if (requested.payment.status !== "approved") {
+      return { ...requested, execution_transaction_hash: null };
+    }
+
+    const paymentId = BigInt(requested.payment.id);
+    if (paymentId > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error("payment ID exceeds the safe JSON integer range for execute_approved_spend");
+    }
+    const executionOutcome = await account.callFunctionRaw({
+      contractId: config.contractId,
+      methodName: "execute_approved_spend",
+      args: { payment_id: Number(paymentId) },
+      gas: sdk.teraToGas("30"),
+      deposit: 0n,
+      waitUntil: "FINAL"
+    });
+    const executionHash = executionOutcome?.transaction_outcome?.id ??
+      executionOutcome?.transaction?.hash;
+    if (typeof executionHash !== "string" || executionHash.length === 0) {
+      throw new Error("NEAR execute_approved_spend did not return a transaction hash");
+    }
+
+    const settledPayment = await (options.getPayment ?? getPayment)(
+      requested.payment.id,
+      { env, fetchImpl: options.fetchImpl }
+    );
+    if (!settledPayment || settledPayment.id !== requested.payment.id ||
+        settledPayment.recipient_id !== payment.recipient_id ||
+        settledPayment.amount_yocto !== payment.amount_yocto) {
+      throw new Error("NEAR get_payment returned a PaymentView inconsistent with the submitted request");
+    }
+    return {
+      transaction_hash: requested.transaction_hash,
+      execution_transaction_hash: executionHash,
+      payment: settledPayment
+    };
   }
 
   return Object.freeze({

@@ -81,6 +81,7 @@ test("payment endpoint submits once and returns the stored result on retry", asy
         assert.deepEqual(request, payment);
         return {
           transaction_hash: "testnet-transaction-hash",
+          execution_transaction_hash: "testnet-execution-hash",
           payment: { id: "12", status: "approved" }
         };
       }
@@ -100,6 +101,7 @@ test("payment endpoint submits once and returns the stored result on retry", asy
       assert.equal(firstBody.state, "submitted");
       assert.equal(firstBody.replayed, false);
       assert.equal(firstBody.transaction_hash, "testnet-transaction-hash");
+      assert.equal(firstBody.execution_transaction_hash, "testnet-execution-hash");
 
       const second = await request();
       assert.equal(second.status, 200);
