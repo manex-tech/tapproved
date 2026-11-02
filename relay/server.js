@@ -146,8 +146,8 @@ export function createRelayServer(options = {}) {
     response.setHeader("x-request-id", requestId);
     response.once("finish", () => {
       const rawPath = (request.url ?? "/").split("?")[0];
-      const route = rawPath.replace(/^\\/v1\\/transactions\\/[^/]+$/, "/v1/transactions/:hash")
-        .replace(/^\\/v1\\/payments\\/[^/]+$/, "/v1/payments/:paymentId");
+      const route = rawPath.replace(/^\/v1\/transactions\/[^/]+$/, "/v1/transactions/:hash")
+        .replace(/^\/v1\/payments\/[^/]+$/, "/v1/payments/:paymentId");
       const fields = {
         request_id: requestId,
         method: request.method ?? "UNKNOWN",

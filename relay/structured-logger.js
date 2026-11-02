@@ -1,6 +1,6 @@
 const SAFE_FIELDS = new Set([
   "request_id", "method", "route", "status", "duration_ms",
-  "error_code", "operation", "payment_id", "transaction_hash",
+  "error_code", "error_name", "operation", "payment_id", "transaction_hash",
   "state", "component"
 ]);
 

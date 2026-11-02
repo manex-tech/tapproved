@@ -8,7 +8,7 @@ test("writes timestamped JSON records with stable safe fields", () => {
   logger.info("request.completed", { request_id: "req-123", method: "GET", route: "/health", status: 200, duration_ms: 4 });
   assert.equal(lines.length, 1);
   const record = JSON.parse(lines[0]);
-  assert.match(record.timestamp, /^\\d{4}-\\d{2}-\\d{2}T/);
+  assert.match(record.timestamp, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(record.level, "info");
   assert.equal(record.event, "request.completed");
   assert.equal(record.request_id, "req-123");
