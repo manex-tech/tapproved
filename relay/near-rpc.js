@@ -61,3 +61,87 @@ export async function getPayment(paymentId, options) {
 }
 
 export { DEFAULT_RPC_URL, DEFAULT_CONTRACT_ID };
+
+
+function executionStatus(status) {
+  if (!status || typeof status !== "object") return "unknown";
+  if (Object.hasOwn(status, "Failure")) return "failure";
+  if (Object.hasOwn(status, "SuccessValue")) return "success";
+  if (Object.hasOwn(status, "SuccessReceiptId")) return "success_receipt";
+  return "unknown";
+}
+
+function decimalMetric(value) {
+  if (typeof value === "string" && /^[0-9]+$/.test(value)) return value;
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return String(value);
+  return null;
+}
+
+/**
+ * Read a final or in-progress NEAR transaction and its receipt outcomes.
+ * The returned shape is intentionally sanitized; raw logs/proofs are omitted.
+ */
+export async function getTransactionStatus(transactionHash, signerAccountId, options = {}) {
+  if (typeof transactionHash !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{32,64}$/.test(transactionHash)) {
+    throw new TypeError("transaction hash must be a valid base58 NEAR hash");
+  }
+  if (typeof signerAccountId !== "string" || !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(signerAccountId)) {
+    throw new TypeError("signer account ID is invalid");
+  }
+  const { rpcUrl } = configuration(options.env);
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable");
+  const response = await fetchImpl(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "tapproved-relay",
+      method: "tx",
+      params: {
+        tx_hash: transactionHash,
+        sender_account_id: signerAccountId
+      }
+    }),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`NEAR RPC HTTP ${response.status}`);
+  const payload = await response.json();
+  if (payload.error) throw new Error(`NEAR RPC error: ${payload.error.message || "unknown error"}`);
+  const result = payload.result;
+  if (!result || typeof result !== "object" ||
+      result.transaction?.hash !== transactionHash ||
+      !result.transaction_outcome?.outcome ||
+      !Array.isArray(result.receipts_outcome)) {
+    throw new Error("NEAR RPC returned an invalid transaction status");
+  }
+
+  const transactionState = executionStatus(result.transaction_outcome.outcome.status);
+  const receipts = result.receipts_outcome.map((receipt) => ({
+    receipt_id: typeof receipt?.id === "string" ? receipt.id : null,
+    executor_id: typeof receipt?.outcome?.executor_id === "string" ? receipt.outcome.executor_id : null,
+    status: executionStatus(receipt?.outcome?.status),
+    gas_burnt: decimalMetric(receipt?.outcome?.gas_burnt),
+    tokens_burnt: decimalMetric(receipt?.outcome?.tokens_burnt)
+  }));
+  const failed = transactionState === "failure" || receipts.some((receipt) => receipt.status === "failure");
+  const final = result.final_execution_status === "FINAL";
+  const allReceiptsKnown = receipts.every((receipt) => receipt.status !== "unknown");
+  const state = failed ? "failed" : final && allReceiptsKnown ? "success" : "pending";
+
+  return {
+    transaction_hash: transactionHash,
+    signer_id: result.transaction.signer_id ?? signerAccountId,
+    receiver_id: result.transaction.receiver_id ?? null,
+    final_execution_status: typeof result.final_execution_status === "string"
+      ? result.final_execution_status
+      : "UNKNOWN",
+    state,
+    transaction: {
+      status: transactionState,
+      gas_burnt: decimalMetric(result.transaction_outcome.outcome.gas_burnt),
+      tokens_burnt: decimalMetric(result.transaction_outcome.outcome.tokens_burnt)
+    },
+    receipts
+  };
+}
