@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy, getTransactionStatus, isValidTransactionHash, TransactionNotFoundError, TransactionQueryValidationError, TransactionWaitTimeoutError } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
-import { createNearAgentSigner, createNearApprovalSigner } from "./near-signer.js";
+import { createNearAgentSigner, createNearApprovalSigner, createNearExpirySigner } from "./near-signer.js";\nimport { createPaymentExpiryMonitor, readExpiryMonitorInterval } from "./expiry-service.js";
 import { createSerialBridge } from "./serial.js";
 import { createApprovalProcessor } from "./approval-service.js";
 import {
@@ -402,9 +402,30 @@ async function startRelay() {
     console.error(`Hardware approval unavailable; device approval submission disabled: ${error.message}`);
   }
 
+  try {
+    const expirySigner = await createNearExpirySigner();
+    expiryMonitor = createPaymentExpiryMonitor({
+      expirySigner,
+      intervalMs: readExpiryMonitorInterval(),
+      onResult: (result) => {
+        if (["expired", "submitted_unconfirmed"].includes(result?.state)) {
+          console.log(`Payment expiry monitor: ${result.state} for payment ${result.payment_id}.`);
+        }
+      },
+      onError: () => {
+        console.error("Payment expiry monitor cycle failed; ambiguous expiry submissions are not retried in-process.");
+      }
+    });
+    expiryMonitor.start();
+    console.log("Permissionless payment-expiry monitor enabled.");
+  } catch (error) {
+    console.error(`Payment expiry monitor unavailable; automatic expiry calls disabled: ${error.message}`);
+  }
+
   const server = createRelayServer({ idempotencyStore, submitPayment, processHardwareApproval });
   server.on("close", () => {
     if (serialBridge) void serialBridge.disconnect();
+    if (expiryMonitor) expiryMonitor.stop();
   });
   server.listen(port, () => {
     console.log(`Tapproved testnet relay listening on port ${port}`);
