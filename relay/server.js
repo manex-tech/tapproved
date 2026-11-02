@@ -394,6 +394,7 @@ async function startRelay() {
 
   let processHardwareApproval;
   let serialBridge;
+  let expiryMonitor;
   try {
     const approvalSigner = await createNearApprovalSigner();
     serialBridge = createSerialBridge();
