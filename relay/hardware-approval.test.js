@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign as signMessage } from "node:crypto";
 import { encodeApprovalMessage } from "./protocol.js";
+import { SerialBridgeError } from "./serial.js";
 import {
   HardwareApprovalError,
   createHardwareApprovalService
@@ -151,10 +152,7 @@ test("maps a disconnected serial bridge without attempting a contract call", asy
   const disconnected = createService({
     serialBridge: {
       async requestApproval() {
-        const error = new Error("port is not connected");
-        error.name = "SerialBridgeError";
-        error.code = "serial_port_not_connected";
-        throw error;
+        throw new SerialBridgeError("serial_port_not_connected");
       }
     }
   });
