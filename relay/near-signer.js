@@ -6,6 +6,7 @@ export const CANONICAL_NETWORK = "testnet";
 export const CANONICAL_CONTRACT_ID = "manextech.testnet";
 export const CANONICAL_AGENT_ID = "manex-agent.testnet";
 export const AGENT_ALLOWED_METHODS = Object.freeze(["request_spend", "execute_approved_spend", "approve_spend"]);
+const LEGACY_AGENT_METHODS = Object.freeze(["request_spend", "execute_approved_spend"]);
 export const MAX_SIGNER_ALLOWANCE_YOCTO = 5n * 10n ** 24n;
 
 export class SignerConfigurationError extends Error {
@@ -63,10 +64,12 @@ export function validateAgentFunctionCallKey(accessKeyList, expectedPublicKey, c
     throw new SignerConfigurationError("agent signer key is scoped to a different contract");
   }
   const methodNames = functionCall.method_names;
-  if (!Array.isArray(methodNames) ||
-      methodNames.length !== AGENT_ALLOWED_METHODS.length ||
-      methodNames.some((method, index) => method !== AGENT_ALLOWED_METHODS[index])) {
-    throw new SignerConfigurationError("agent signer key must be restricted to request_spend, execute_approved_spend and approve_spend only");
+  const matchesExactMethodSet = (expected) =>
+    Array.isArray(methodNames) &&
+    methodNames.length === expected.length &&
+    methodNames.every((method, index) => method === expected[index]);
+  if (!matchesExactMethodSet(AGENT_ALLOWED_METHODS) && !matchesExactMethodSet(LEGACY_AGENT_METHODS)) {
+    throw new SignerConfigurationError("agent signer key must be restricted to the exact Tapproved method set");
   }
   if (functionCall.allowance === null || functionCall.allowance === undefined) {
     throw new SignerConfigurationError("agent signer key must have a finite gas allowance");
@@ -146,6 +149,9 @@ export async function createNearAgentSigner(options = {}) {
   const verifiedKey = validateAgentFunctionCallKey(accessKeyList, publicKey, config.contractId);
 
   async function approveSpend(paymentId, signatureHex) {
+    if (!verifiedKey.method_names.includes("approve_spend")) {
+      throw new SignerConfigurationError("agent signer FunctionCall key must be updated to include approve_spend");
+    }
     if (typeof paymentId !== "string" || !/^[1-9][0-9]*$/.test(paymentId)) {
       throw new TypeError("payment ID must be a positive canonical decimal string");
     }
