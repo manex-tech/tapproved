@@ -400,7 +400,7 @@ test("submits only a locally verified registered-device signature to approve_spe
     getPayment: async (id) => ({
       ...signed.payment,
       id,
-      status: "processing"
+      status: "pending"
     })
   });
 
@@ -417,7 +417,7 @@ test("submits only a locally verified registered-device signature to approve_spe
   assert.equal(calls[0].deposit, 0n);
   assert.equal(calls[0].waitUntil, "FINAL");
   assert.equal(result.transaction_hash, "hardware-approval-transaction");
-  assert.equal(result.payment.status, "processing");
+  assert.equal(result.payment.status, "pending");
 });
 
 test("refuses an unregistered public key and invalid signature before any contract call", async () => {
