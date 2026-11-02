@@ -6,7 +6,6 @@ export const CANONICAL_CONTRACT_ID = "manextech.testnet";
 export const CANONICAL_AGENT_ID = "manex-agent.testnet";
 export const REQUEST_SPEND_METHODS = Object.freeze(["request_spend"]);
 export const MAX_SIGNER_ALLOWANCE_YOCTO = 5n * 10n ** 24n;
-const REQUEST_GAS = teraToGas("30");
 
 export class SignerConfigurationError extends Error {
   constructor(message) {
