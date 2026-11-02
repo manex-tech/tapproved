@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   node:
@@ -40,6 +40,18 @@ jobs:
       - name: Build contract Wasm
         working-directory: contract
         run: cargo build --target wasm32-unknown-unknown --release
+      - name: Commit generated contract lockfile
+        if: github.event_name == 'pull_request'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add contract/Cargo.lock
+          if git diff --cached --quiet; then
+            echo "Cargo.lock is already committed"
+            exit 0
+          fi
+          git commit -m "chore(contract): add generated Cargo.lock"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
       - name: Upload generated Cargo lockfile for review
         uses: actions/upload-artifact@v4
         with:
