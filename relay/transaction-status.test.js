@@ -13,7 +13,7 @@ test("queries canonical agent transaction status and receipt outcomes", async ()
   const result = {
     final_execution_status: "FINAL",
     status: { SuccessValue: "" },
-    transaction: { hash, signer_id: "manex-agent.testnet", receiver_id: "manextech.testnet" },
+    transaction: { hash, signer_id: "manex-agent.testnet", receiver_id: "manextech.testnet", actions: [{ FunctionCall: { method_name: "approve_spend" } }] },
     transaction_outcome: { id: hash, outcome: { gas_burnt: 1000000000000, status: { SuccessReceiptId: "receipt-id" } } },
     receipts_outcome: [{
       id: "receipt-id",
