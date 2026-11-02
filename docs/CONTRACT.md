@@ -43,7 +43,7 @@ The relay or caller cannot substitute recipient, amount, nonce or expiry in the 
 
 The private callback records `paid` when the transfer promise succeeds. On failure it records `failed` and releases the original daily reservation. In either case it clears the active payment.
 
-A `paid` payment's reservation remains in the UTC-day usage total and therefore counts as consumed daily capacity.
+On success, the amount moves from `reserved_yocto` to `spent_yocto`; the combined total remains charged against that original UTC day's limit. Failed, expired and cancelled payments release the reservation without increasing spent usage.
 
 ## Expiry, cancellation and pause
 
@@ -60,7 +60,7 @@ The owner can pause/unpause spending, cancel an eligible active payment, rotate 
 
 Payment records are stored in a `LookupMap` and looked up by ID. The contract retains at most 1,000 records. When full, insertion prunes oldest terminal records (`paid`, `failed`, `expired` or `cancelled`). It refuses insertion if the oldest record is not terminal or the retention index is inconsistent.
 
-Daily accounting is currently a `Vec<DailyUsage>`. Reads and updates search it linearly by UTC day, and entries are not pruned. This is a known long-running storage and gas-efficiency issue for future work.
+Daily accounting uses a `LookupMap` keyed by UTC day for constant-time record lookup, plus a bounded day index. Each record tracks `spent_yocto` and `reserved_yocto` separately; the daily cap is enforced against their checked sum. Successful settlement moves the amount from reserved to spent. Failed, expired and cancelled payments release the reservation from the payment's original UTC day, including when expiry occurs after midnight. The contract retains the current UTC day and the preceding 89 days (90 day buckets maximum), pruning older records during a new request. Records with outstanding reservations are never pruned; if the bounded index cannot safely make room, the new request fails closed. The `get_daily_usage(utc_day)` view returns `spent_yocto`, `reserved_yocto`, `total_yocto` and `daily_limit_yocto`.
 
 The current persistent state layout is not compatible with earlier contract layouts. Do not assume an in-place migration exists. A change to Borsh state layout requires a deliberate upgrade/redeployment plan and verified state handling.
 
