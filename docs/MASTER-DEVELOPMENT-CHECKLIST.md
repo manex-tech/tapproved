@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last verified source revision:** `59873cc671fa6c26a3b208b361d85c0635c5cd50` (2026-11-02)  
+**Last verified source revision:** `e8bfe427c5fcab71467eb73693079170d7ad9ec8` (2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -30,7 +30,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 
 **C1 completed:** [Relay architecture and trust boundaries](RELAY-ARCHITECTURE.md) defines the agent, relay, signer, contract, serial bridge and ESP32 boundaries; API contract; secret configuration; lifecycle and failure invariants. This is a design baseline, not a claim that these components are implemented.
 
-`main` is at `59873cc671fa6c26a3b208b361d85c0635c5cd50`. PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable idempotency; PR #30 added the restricted NEAR agent signer; PR #31 added automatic execution for contract-approved payments; PR #33 added pending-approval polling and contract-backed payment status reads. The signer code is merged, but live preflight remains blocked until the dedicated FunctionCall key is provisioned on `manex-agent.testnet`.
+`main` is at `e8bfe427c5fcab71467eb73693079170d7ad9ec8`. PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable idempotency; PR #30 added the restricted NEAR agent signer; PR #31 added automatic execution for contract-approved payments; PR #33 added pending-approval polling and contract-backed payment status reads. The signer code is merged, but live preflight remains blocked until the dedicated FunctionCall key is provisioned on `manex-agent.testnet`.
 
 ## Phase A: Repository consistency and documentation
 
