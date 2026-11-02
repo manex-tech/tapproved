@@ -68,6 +68,14 @@ export async function getPayment(paymentId, options) {
 }
 
 
+export class TransactionQueryValidationError extends TypeError {
+  constructor(code, message) {
+    super(message);
+    this.name = "TransactionQueryValidationError";
+    this.code = code;
+  }
+}
+
 export class TransactionNotFoundError extends Error {
   constructor() {
     super("NEAR transaction was not found for the canonical signer");
@@ -103,11 +111,11 @@ function isTransactionHash(value) {
 
 export async function getTransactionStatus(transactionHash, options = {}) {
   if (!isTransactionHash(transactionHash)) {
-    throw new TypeError("transaction hash must be a base58-encoded 32-byte hash");
+    throw new TransactionQueryValidationError("invalid_transaction_hash", "transaction hash must be a base58-encoded 32-byte hash");
   }
   const waitUntil = options.waitUntil ?? "NONE";
   if (!TRANSACTION_WAIT_UNTIL.has(waitUntil)) {
-    throw new TypeError("invalid NEAR transaction wait_until value");
+    throw new TransactionQueryValidationError("invalid_wait_until", "invalid NEAR transaction wait_until value");
   }
 
   const { rpcUrl, signerAccountId } = configuration(options.env);
