@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { SerialPort } from "serialport";
 import { DEFAULT_CONTRACT_ID } from "./near-rpc.js";
 
@@ -25,9 +26,12 @@ function decimalString(value, field, { positive = false } = {}) {
   return value;
 }
 
-export function buildDeviceApprovalFrame(payment) {
+export function buildDeviceApprovalFrame(payment, requestId) {
   if (!payment || typeof payment !== "object" || Array.isArray(payment)) {
     throw new SerialBridgeError("invalid_payment_context");
+  }
+  if (typeof requestId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
+    throw new SerialBridgeError("invalid_request_id");
   }
   if (payment.status !== "pending") {
     throw new SerialBridgeError("payment_not_pending");
@@ -42,6 +46,8 @@ export function buildDeviceApprovalFrame(payment) {
   }
 
   return {
+    frame_version: 1,
+    request_id: requestId,
     contract_id: DEFAULT_CONTRACT_ID,
     network_id: "testnet",
     payment_id: decimalString(payment.id, "payment_id", { positive: true }),
@@ -98,14 +104,17 @@ export function createSerialBridge(options = {}) {
     }
     if (!message || typeof message !== "object" || Array.isArray(message)) return;
     if (message.status === "signed") {
-      if (typeof message.public_key_hex !== "string" ||
+      if (message.frame_version !== 1 ||
+          typeof message.request_id !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(message.request_id) ||
+          typeof message.public_key_hex !== "string" ||
           !/^[0-9a-f]{64}$/i.test(message.public_key_hex) ||
           typeof message.signature_hex !== "string" ||
           !/^[0-9a-f]{128}$/i.test(message.signature_hex)) {
         rejectPending(new SerialBridgeError("invalid_device_signature_frame"));
         return;
       }
-      if (!pending) return;
+      if (!pending || message.request_id !== pending.requestId) return;
       const current = pending;
       pending = null;
       clearTimeout(current.timer);
@@ -115,6 +124,10 @@ export function createSerialBridge(options = {}) {
       });
       return;
     }
+    if (message.frame_version !== 1 ||
+        typeof message.request_id !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(message.request_id) ||
+        !pending || message.request_id !== pending.requestId) return;
     if (typeof message.error === "string") {
       rejectPending(new SerialBridgeError("device_error", message.error));
       return;
@@ -200,7 +213,8 @@ export function createSerialBridge(options = {}) {
       return Promise.reject(new SerialBridgeError("approval_already_in_progress"));
     }
 
-    const frame = buildDeviceApprovalFrame(payment);
+    const requestId = randomUUID();
+    const frame = buildDeviceApprovalFrame(payment, requestId);
     const encoded = Buffer.from(JSON.stringify(frame) + "\n", "utf8");
     if (encoded.length > MAX_SERIAL_FRAME_BYTES) {
       return Promise.reject(new SerialBridgeError("serial_frame_too_large"));
@@ -210,7 +224,7 @@ export function createSerialBridge(options = {}) {
       const timer = setTimeout(() => {
         rejectPending(new SerialBridgeError("device_approval_timeout"));
       }, timeoutMs);
-      pending = { resolve, reject, timer };
+      pending = { resolve, reject, timer, requestId };
       port.write(encoded, (error) => {
         if (error) rejectPending(new SerialBridgeError("serial_write_failed", error.message));
       });

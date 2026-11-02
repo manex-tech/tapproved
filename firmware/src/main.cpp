@@ -69,9 +69,34 @@ bool appendString(uint8_t* out, size_t& offset, const char* value) {
   return true;
 }
 
+bool isValidRequestId(const char* value) {
+  if (!value || strlen(value) != 36) return false;
+  for (size_t i = 0; i < 36; ++i) {
+    const bool separator = i == 8 || i == 13 || i == 18 || i == 23;
+    if (separator) {
+      if (value[i] != '-') return false;
+    } else if (!((value[i] >= '0' && value[i] <= '9') ||
+                 (value[i] >= 'a' && value[i] <= 'f') ||
+                 (value[i] >= 'A' && value[i] <= 'F'))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void printEnvelopeError(const char* request_id, const char* code) {
+  if (isValidRequestId(request_id)) {
+    Serial.printf("{\"frame_version\":1,\"request_id\":\"%s\",\"error\":\"%s\"}\n", request_id, code);
+  } else {
+    Serial.printf("{\"error\":\"%s\"}\n", code);
+  }
+}
+
 bool encodeApproval(const JsonDocument& doc, uint8_t* out, size_t& out_len) {
   const char* contract_id = doc["contract_id"] | "";
   const char* network_id = doc["network_id"] | "";
+  const char* request_id = doc["request_id"] | "";
+  if ((doc["frame_version"] | 0) != 1 || !isValidRequestId(request_id)) return false;
   const char* recipient_id = doc["recipient_id"] | "";
   const char* amount = doc["amount_yocto"] | "";
   uint64_t payment_id, nonce, expires_at_ns;
@@ -130,10 +155,11 @@ void handleRequest(const char* line) {
     Serial.println("{\"error\":\"invalid_json\"}");
     return;
   }
+  const char* request_id = doc["request_id"] | "";
   uint8_t message[MAX_MESSAGE_SIZE];
   size_t message_len = 0;
   if (!encodeApproval(doc, message, message_len)) {
-    Serial.println("{\"error\":\"invalid_or_wrong_network_request\"}");
+    printEnvelopeError(request_id, "invalid_or_wrong_network_request");
     return;
   }
 
@@ -158,13 +184,13 @@ void handleRequest(const char* line) {
     delay(10);
   }
   if (!pressed) {
-    Serial.println("{\"status\":\"rejected_or_timed_out\"}");
+    Serial.printf("{\"frame_version\":1,\"request_id\":\"%s\",\"status\":\"rejected_or_timed_out\"}\n", request_id);
     return;
   }
 
   uint8_t signature[64];
   Ed25519::sign(signature, private_seed, public_key, message, message_len);
-  Serial.print("{\"status\":\"signed\",\"public_key_hex\":\"");
+  Serial.printf("{\"frame_version\":1,\"request_id\":\"%s\",\"status\":\"signed\",\"public_key_hex\":\"", request_id);
   printHex(public_key, sizeof(public_key));
   Serial.print("\",\"signature_hex\":\"");
   printHex(signature, sizeof(signature));
