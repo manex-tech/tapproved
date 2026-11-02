@@ -171,4 +171,30 @@ export async function getTransactionStatus(transactionHash, options = {}) {
   return result;
 }
 
+
+export async function getLatestBlockTimestampNs(options = {}) {
+  const { rpcUrl } = configuration(options.env);
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable");
+  const response = await fetchImpl(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "tapproved-block-time",
+      method: "block",
+      params: { finality: "final" }
+    }),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`NEAR RPC HTTP ${response.status}`);
+  const payload = await response.json();
+  if (payload.error) throw new Error(`NEAR block RPC error: ${payload.error.message ?? "unknown error"}`);
+  const timestampNs = payload.result?.header?.timestamp_nanosec;
+  if (typeof timestampNs !== "string" || !/^[0-9]+$/.test(timestampNs)) {
+    throw new Error("NEAR block RPC returned an invalid timestamp_nanosec");
+  }
+  return timestampNs;
+}
+
 export { DEFAULT_RPC_URL, DEFAULT_CONTRACT_ID };
