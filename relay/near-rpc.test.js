@@ -88,3 +88,98 @@ test("queries a payment by its exact decimal ID", async () => {
   await assert.rejects(getPayment("not-a-number"), /decimal string/);
   await assert.rejects(getPayment("9007199254740992"), /safe JSON integer range/);
 });
+
+
+test("queries transaction status and sanitizes receipt outcomes", async () => {
+  const capture = {};
+  const hash = "A".repeat(44);
+  const result = await (await import("./near-rpc.js")).getTransactionStatus(hash, "manex-agent.testnet", {
+    env: {},
+    fetchImpl: async (url, init) => {
+      capture.url = url;
+      capture.request = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jsonrpc: "2.0",
+          id: "tapproved-relay",
+          result: {
+            final_execution_status: "FINAL",
+            transaction: { hash, signer_id: "manex-agent.testnet", receiver_id: "manextech.testnet" },
+            transaction_outcome: {
+              outcome: { status: { SuccessReceiptId: "receipt-1" }, gas_burnt: 1000, tokens_burnt: "2000", logs: ["private log"] }
+            },
+            receipts_outcome: [{
+              id: "receipt-1",
+              outcome: { executor_id: "manextech.testnet", status: { SuccessValue: "" }, gas_burnt: 3000, tokens_burnt: "4000", logs: ["private receipt log"] }
+            }]
+          }
+        })
+      };
+    }
+  });
+  assert.equal(capture.url, "https://rpc.testnet.near.org");
+  assert.equal(capture.request.method, "tx");
+  assert.deepEqual(capture.request.params, {
+    tx_hash: hash,
+    sender_account_id: "manex-agent.testnet"
+  });
+  assert.deepEqual(result, {
+    transaction_hash: hash,
+    signer_id: "manex-agent.testnet",
+    receiver_id: "manextech.testnet",
+    final_execution_status: "FINAL",
+    state: "success",
+    transaction: { status: "success_receipt", gas_burnt: "1000", tokens_burnt: "2000" },
+    receipts: [{
+      receipt_id: "receipt-1",
+      executor_id: "manextech.testnet",
+      status: "success",
+      gas_burnt: "3000",
+      tokens_burnt: "4000"
+    }]
+  });
+  assert.equal(JSON.stringify(result).includes("private log"), false);
+});
+
+test("marks failed receipt execution as failed even when transaction action succeeded", async () => {
+  const hash = "B".repeat(44);
+  const { getTransactionStatus } = await import("./near-rpc.js");
+  const result = await getTransactionStatus(hash, "manex-agent.testnet", {
+    env: {},
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        result: {
+          final_execution_status: "FINAL",
+          transaction: { hash },
+          transaction_outcome: { outcome: { status: { SuccessReceiptId: "receipt-2" } } },
+          receipts_outcome: [{
+            id: "receipt-2",
+            outcome: { executor_id: "merchant.testnet", status: { Failure: { ActionError: {} } } }
+          }]
+        }
+      })
+    })
+  });
+  assert.equal(result.state, "failed");
+  assert.equal(result.receipts[0].status, "failure");
+});
+
+test("rejects malformed transaction hashes and maps transaction RPC failures", async () => {
+  const { getTransactionStatus } = await import("./near-rpc.js");
+  await assert.rejects(getTransactionStatus("not-a-hash", "manex-agent.testnet"), /base58 NEAR hash/);
+  await assert.rejects(
+    getTransactionStatus("C".repeat(44), "manex-agent.testnet", {
+      env: {},
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ error: { message: "unknown transaction" } })
+      })
+    }),
+    /unknown transaction/
+  );
+});
