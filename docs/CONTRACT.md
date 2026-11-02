@@ -39,12 +39,15 @@ A caller submits `approve_spend(payment_id, signature)` for the active `pending`
 
 The relay or caller cannot substitute recipient, amount, nonce or expiry in the message accepted by the contract: those fields are reconstructed from contract state. See [APPROVAL-PROTOCOL.md](APPROVAL-PROTOCOL.md).
 
-### Callback
+### Callback and recovery
 
-The private callback records `paid` when the transfer promise succeeds. On failure it records `failed` and releases the original daily reservation. In either case it clears the active payment. The callback currently has a fixed 10 TGas allocation; this allocation has not yet been empirically measured on testnet.
+The private callback records `paid` when the transfer promise succeeds. On failure it records `failed` and releases the original daily reservation. In either case it clears the active payment. The callback receives a fixed 30 TGas allocation. A contract unit test measures callback execution against this budget, but this is not a substitute for empirical testnet receipt-gas validation.
 
-**Known high-priority reliability limitation:** if the callback receipt itself fails (for example, from out-of-gas), the contract can remain in `processing` with its reservation locked and the active-payment gate engaged. There is no safe on-chain recovery method today. Do not force-fail or release this reservation based only on elapsed time: the transfer may already have succeeded. A trustworthy reconciliation design and testnet gas measurement remain required before production use.
+If the callback receipt itself fails, the payment can remain in `processing` with its reservation locked and the active-payment gate engaged. There is no trustless way for the contract to query the outcome of an earlier transfer receipt after its callback has failed. The owner-only `reconcile_processing_payment(payment_id, transfer_succeeded)` method provides an explicit recovery path. It can settle the reservation as `paid` or release it as `failed`, but the boolean is an owner attestation, not an on-chain proof.
 
+**Mandatory reconciliation procedure:** do not call this method merely because time has elapsed or because the callback is missing. Independently inspect the final NEAR transfer receipt and the callback receipt using a trusted RPC/explorer. Invoke reconciliation only after the transfer outcome is final and the callback receipt is confirmed failed. If the transfer succeeded, pass `true`; if the transfer failed, pass `false`. If the outcome is ambiguous, leave the payment in `processing` and keep the reservation locked. A mistaken owner attestation can cause accounting inconsistency or duplicate-payment risk. This is an operational trust boundary and must be disclosed to treasury operators.
+
+The 30 TGas allocation is a conservative increase over the previous 10 TGas allocation. The callback's simulated unit-test gas use is checked against the budget. **Empirical testnet gas validation remains outstanding** and must be completed against a deployed build before production use.
 On success, the amount moves from `reserved_yocto` to `spent_yocto`; the combined total remains charged against that original UTC day's limit. Failed, expired and cancelled payments release the reservation without increasing spent usage.
 
 ## Expiry, cancellation and pause
@@ -52,7 +55,7 @@ On success, the amount moves from `reserved_yocto` to `spent_yocto`; the combine
 - `expire_payment` is permissionless after the payment's expiry timestamp. It changes an active `pending` or `approved` payment to `expired`, releases its reservation from the original UTC-day bucket and clears the active payment.
 - `cancel_payment` is owner-only and can cancel an active `pending` or `approved` payment. It releases the reservation and clears the active payment.
 - `pause` and `unpause` are owner-only and control whether new spend requests can be created. They do not cancel an existing payment or prevent settlement of an already authorized payment.
-- `expire_payment` remains permissionless for external cleanup, but a subsequent valid `request_spend` also expires a stale active `pending` or `approved` payment atomically. A stale `processing` payment is not expired and remains blocked pending safe reconciliation.
+- `expire_payment` remains permissionless for external cleanup, but a subsequent valid `request_spend` also expires a stale active `pending` or `approved` payment atomically. A stale `processing` payment is not expired. It remains blocked until the owner reconciles it after independently verifying the final transfer and callback receipts.
 
 ## Owner controls
 
@@ -74,7 +77,7 @@ The current persistent state layout is not compatible with earlier contract layo
 
 `pending` or `approved` → `expired` or `cancelled`
 
-`processing` is not eligible for expiry or owner cancellation. Failed, expired and cancelled payments release their reservations. Paid payments move the amount from reserved usage into spent usage, preserving the same daily-cap consumption.
+`processing` is not eligible for expiry or cancellation. If its callback receipt fails, the owner can reconcile it only after independently verifying the final transfer outcome. Failed, expired and cancelled payments release their reservations. Paid payments move the amount from reserved usage into spent usage, preserving the same daily-cap consumption.
 
 ## Events and views
 
