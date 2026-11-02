@@ -17,17 +17,19 @@
 
 ## Silicon-revision dependency
 
-The module name alone is insufficient to select a secure-boot procedure. The exact ESP32 silicon revision and eFuse capabilities must be identified on the target board before selecting a secure-boot mode. Espressif documents Secure Boot V1 for original ESP32 revisions before ECO3 and Secure Boot V2 for ESP32 v3.0 onwards. Do not assume the generic PlatformIO esp32dev target identifies the exact revision.
+The module name alone is insufficient to select a secure-boot procedure. The exact ESP32 silicon revision and eFuse capabilities must be identified on the target board before selecting a secure-boot mode. Espressif's current ESP32 eFuse reference distinguishes `ABS_DONE_0` (Secure Boot V1) and `ABS_DONE_1` (Secure Boot V2); the ESP32 Secure Boot V2 support is revision-dependent (ESP32 v3.0/ECO3 and later). Do not assume the generic PlatformIO `esp32dev` target identifies the exact revision. The eFuse summary must be read before choosing a compatible configuration.
 
 ## Recommended production hardening profile
 
 1. Identify the exact SoC model/revision, flash size and current eFuse summary using read-only tooling on each hardware revision. Record the results before selecting security configuration.
-2. Build a reproducible production firmware and bootloader configuration with Secure Boot appropriate to the identified silicon revision.
-3. Enable Flash Encryption in Release Mode with a unique per-device encryption key. Do not use one shared encryption key across devices.
-4. Use Secure Boot and Flash Encryption together. Validate the complete boot chain, partition table, application image, NVS storage and update/recovery process before production.
-5. Review JTAG, ROM UART download mode, BASIC ROM interpreter and flash download encryption/decryption settings. Disable only interfaces not required by the approved manufacturing and recovery process.
-6. Maintain offline custody of image-signing keys. Define per-device provisioning, recovery, firmware update and key-rotation procedures before production.
-7. Perform an explicit eFuse change review and obtain separate approval before any irreversible fuse programming.
+2. Resolve the framework constraint before designing production Secure Boot: this repository currently builds with PlatformIO's Arduino framework. Espressif's FAQ says Secure Boot is not enabled directly in the Arduino development environment; Arduino must be integrated as an ESP-IDF component. Plan and test that framework/build-system migration before claiming a Secure Boot-capable production build.
+3. Build a reproducible production firmware and bootloader configuration with Secure Boot appropriate to the identified silicon revision.
+4. Enable Flash Encryption in Release Mode with a unique per-device encryption key. Do not use one shared encryption key across devices.
+5. Use Secure Boot and Flash Encryption together. Validate the complete boot chain, partition table, application image, NVS storage and update/recovery process before production.
+6. Treat NVS encryption as a separate feature. Espressif documents NVS encryption as requiring its own configuration and key-protection scheme; Flash Encryption alone does not mean every NVS entry is encrypted. Validate the Preferences/NVS storage path with an encrypted NVS partition and key partition in the chosen ESP-IDF integration.
+7. Review JTAG, ROM UART download mode, BASIC ROM interpreter and flash download encryption/decryption settings. Espressif documents security-feature-dependent debug/download restrictions; inspect exact eFuse effects for this original ESP32 target and preserve an approved recovery/update path.
+8. Maintain offline custody of image-signing keys. Define per-device provisioning, recovery, firmware update and key-rotation procedures before production.
+9. Perform an explicit eFuse change review and obtain separate approval before any irreversible fuse programming.
 
 ## Irreversible-operation boundary
 
@@ -42,6 +44,10 @@ This repository change does not enable Secure Boot, Flash Encryption, JTAG disab
 
 ## References
 
-- Espressif ESP32 Security Overview: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/security/security.html
-- Espressif ESP32 Secure Boot V1: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/security/secure-boot-v1.html
-- Espressif ESP32 Flash Encryption: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/security/flash-encryption.html
+- [Espressif Documentation Center](https://documentation.espressif.com/en/documentList): current document discovery portal; select the exact ESP32 product and ESP-IDF version before applying a procedure.
+- [ESP-IDF User Guide for ESP32](https://documentation.espressif.com/projects/esp-idf/en/latest/esp32/index.html): target-specific framework documentation.
+- [ESP32 eFuse API reference](https://documentation.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/efuse.html): identifies Secure Boot V1/V2 eFuse state and other security controls.
+- [ESP-IDF ESP32 eFuse reference, v5.2.8](https://documentation.espressif.com/projects/esp-idf/en/v5.2.8/esp32/api-reference/system/efuse.html): explicit ESP32 `ABS_DONE_0` and `ABS_DONE_1` fields.
+- [Espressif ESP-FAQ handbook](https://documentation.espressif.com/api/resource/path/docs/projects/esp-faq/en/latest/esp-faq-en-master.pdf): see the Arduino Secure Boot compatibility answer and the ESP32 JTAG/UART download-mode notes.
+- [Espressif Flash Encryption overview](https://documentation.espressif.com/projects/esp-iot-solution/en/latest/security_solution/flash_encryption.html): explains the complementary roles of Flash Encryption and Secure Boot, and states that NVS encryption is a separate feature.
+- [ESP-IDF NVS Encryption documentation (ESP32-C6 guide)](https://documentation.espressif.com/projects/esp-idf/en/latest/esp32c6/index.html): illustrates NVS key partitions and the separate NVS encryption configuration. Treat this as conceptual reference only; use the exact ESP32 target's guide for implementation.
