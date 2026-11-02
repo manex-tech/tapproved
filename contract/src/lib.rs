@@ -497,6 +497,248 @@ mod tests {
     #[should_panic(expected = "allowlist must contain at least one recipient")]
     fn owner_cannot_remove_last_allowed_recipient() { let mut c = admin_contract("owner.testnet"); c.remove_allowed_recipient(account("merchant.testnet")); }
 
+
+    const VECTOR_PUBLIC_KEY: &str = "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8";
+    const VECTOR_SIGNATURE: &str = "b95fe907aecd36dd17ba4b98b3966d71b8ea87dbd2ab5d4c0a484f1e104b449ff2a10419476c41da42419461c8140509f99c6c9de4839348e68cd49bd3199702";
+    const ESP32_PUBLIC_KEY: &str = "A5529E95FF0180CA709661D902ECC000F9688A069AA635E8D98F58CBA3195BAD";
+    const ESP32_SIGNATURE: &str = "01ADBF4072D54089CE380EC74E495413EC14561B4D761A6B8115BC2E191AFC08F2CA97E932C557614BB9ABA924484152C08A16A584B5B702A36769F54B8EB00B";
+    const FIXTURE_AMOUNT: u128 = 123456789012345678901234567890;
+    const FIXTURE_EXPIRY: u64 = 1_793_520_000_000_000_000;
+    const FIXTURE_NOW: u64 = 1_793_519_700_000_000_000;
+
+    fn decode_hex(value: &str) -> Vec<u8> {
+        value.as_bytes().chunks_exact(2).map(|pair| {
+            let digit = |b: u8| match b {
+                b'0'..=b'9' => b - b'0',
+                b'a'..=b'f' => b - b'a' + 10,
+                b'A'..=b'F' => b - b'A' + 10,
+                _ => panic!("invalid hex"),
+            };
+            (digit(pair[0]) << 4) | digit(pair[1])
+        }).collect()
+    }
+
+    fn context_at(predecessor: &str, current: &str, timestamp: u64) {
+        use near_sdk::test_utils::VMContextBuilder;
+        use near_sdk::testing_env;
+        testing_env!(VMContextBuilder::new()
+            .current_account_id(account(current))
+            .predecessor_account_id(account(predecessor))
+            .block_timestamp(timestamp)
+            .build());
+    }
+
+    fn fixture_contract(public_key: &str) -> Tapproved {
+        use near_sdk::test_utils::VMContextBuilder;
+        use near_sdk::testing_env;
+        testing_env!(VMContextBuilder::new()
+            .current_account_id(account("tapproved.testnet"))
+            .predecessor_account_id(account("owner.testnet"))
+            .block_timestamp(FIXTURE_NOW)
+            .account_balance(near_sdk::NearToken::from_yoctonear(FIXTURE_AMOUNT * 2))
+            .build());
+        let mut c = Tapproved::new(
+            account("agent.testnet"), decode_hex(public_key), U128(10), U128(FIXTURE_AMOUNT),
+            U128(FIXTURE_AMOUNT * 2), vec![account("merchant.testnet")], "testnet".to_string()
+        );
+        let payment = Payment {
+            id: 42, agent_id: account("agent.testnet"), recipient_id: account("merchant.testnet"),
+            amount_yocto: FIXTURE_AMOUNT, nonce: 42, created_at_ns: FIXTURE_NOW,
+            expires_at_ns: FIXTURE_EXPIRY, status: PaymentStatus::Pending, hardware_approved: false,
+        };
+        c.next_payment_id = 43;
+        c.daily_usage.push(DailyUsage { utc_day: FIXTURE_NOW / NANOS_PER_DAY, reserved_yocto: FIXTURE_AMOUNT });
+        c.payments.push(payment);
+        c.active_payment_id = Some(42);
+        c
+    }
+
+    fn request_contract(timestamp: u64) -> Tapproved {
+        context_at("owner.testnet", "tapproved.testnet", timestamp);
+        Tapproved::new(account("agent.testnet"), vec![7; 32], U128(10), U128(100), U128(150),
+            vec![account("merchant.testnet")], "testnet".to_string())
+    }
+
+    #[test]
+    fn request_within_soft_limit_is_approved() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let p = c.request_spend(account("merchant.testnet"), U128(10));
+        assert_eq!(p.status, PaymentStatus::Approved);
+        assert_eq!(c.active_payment_id, Some(p.id.0));
+    }
+
+    #[test]
+    fn request_above_soft_limit_is_pending() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let p = c.request_spend(account("merchant.testnet"), U128(11));
+        assert_eq!(p.status, PaymentStatus::Pending);
+    }
+
+    #[test]
+    #[should_panic(expected = "only the registered agent")]
+    fn non_agent_cannot_request_spend() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("attacker.testnet", "tapproved.testnet", FIXTURE_NOW);
+        c.request_spend(account("merchant.testnet"), U128(5));
+    }
+
+    #[test]
+    #[should_panic(expected = "spending is paused")]
+    fn paused_contract_rejects_request() {
+        let mut c = request_contract(FIXTURE_NOW);
+        c.paused = true;
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        c.request_spend(account("merchant.testnet"), U128(5));
+    }
+
+    #[test]
+    #[should_panic(expected = "another payment is still active")]
+    fn second_request_while_active_is_rejected() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        c.request_spend(account("merchant.testnet"), U128(5));
+        c.request_spend(account("merchant.testnet"), U128(5));
+    }
+
+    #[test]
+    #[should_panic(expected = "recipient is not allowlisted")]
+    fn non_allowlisted_recipient_is_rejected() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        c.request_spend(account("other-merchant.testnet"), U128(5));
+    }
+
+    #[test]
+    #[should_panic(expected = "amount exceeds hard per-payment limit")]
+    fn hard_per_payment_cap_is_enforced() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        c.request_spend(account("merchant.testnet"), U128(101));
+    }
+
+    #[test]
+    #[should_panic(expected = "request exceeds remaining UTC daily limit")]
+    fn daily_cap_is_enforced_across_reservations() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        c.request_spend(account("merchant.testnet"), U128(90));
+        c.active_payment_id = None;
+        c.request_spend(account("merchant.testnet"), U128(61));
+    }
+
+    #[test]
+    fn protocol_v1_vector_signature_is_accepted() {
+        let mut c = fixture_contract(VECTOR_PUBLIC_KEY);
+        let _promise = c.approve_spend(42, decode_hex(VECTOR_SIGNATURE));
+        assert_eq!(c.payments[0].status, PaymentStatus::Processing);
+        assert!(c.payments[0].hardware_approved);
+    }
+
+    #[test]
+    fn real_esp32_signature_is_accepted() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+        assert_eq!(c.payments[0].status, PaymentStatus::Processing);
+        assert!(c.payments[0].hardware_approved);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid hardware approval signature")]
+    fn tampered_amount_invalidates_signature() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        c.payments[0].amount_yocto += 1;
+        let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid hardware approval signature")]
+    fn wrong_contract_id_invalidates_signature() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        context_at("relayer.testnet", "different-contract.testnet", FIXTURE_NOW);
+        let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid hardware approval signature")]
+    fn wrong_device_key_rejects_signature() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        c.device_public_key = decode_hex(VECTOR_PUBLIC_KEY);
+        let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+    }
+
+    #[test]
+    #[should_panic(expected = "payment approval has expired")]
+    fn expired_hardware_approval_is_rejected() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        context_at("relayer.testnet", "tapproved.testnet", FIXTURE_EXPIRY + 1);
+        let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+    }
+
+    #[test]
+    #[should_panic(expected = "payment is not active")]
+    fn replay_after_paid_payment_is_rejected() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        c.payments[0].status = PaymentStatus::Paid;
+        c.active_payment_id = None;
+        let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+    }
+
+    #[test]
+    #[should_panic(expected = "payment is not active")]
+    fn replay_after_failed_payment_is_rejected() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        c.payments[0].status = PaymentStatus::Failed;
+        c.active_payment_id = None;
+        let _promise = c.approve_spend(42, decode_hex(ESP32_SIGNATURE));
+    }
+
+
+    #[test]
+    fn transfer_callback_success_marks_payment_paid() {
+        use near_sdk::test_utils::testing_env_with_promise_results;
+        use near_sdk::test_utils::VMContextBuilder;
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        c.payments[0].status = PaymentStatus::Processing;
+        testing_env_with_promise_results(
+            VMContextBuilder::new().current_account_id(account("tapproved.testnet"))
+                .predecessor_account_id(account("tapproved.testnet")).block_timestamp(FIXTURE_NOW).build(),
+            PromiseResult::Successful(vec![]),
+        );
+        let result = c.on_transfer_result(42);
+        assert_eq!(result.status, PaymentStatus::Paid);
+        assert_eq!(c.active_payment_id, None);
+        assert_eq!(c.daily_usage[0].reserved_yocto, FIXTURE_AMOUNT);
+    }
+
+    #[test]
+    fn transfer_callback_failure_marks_failed_and_releases_reservation() {
+        use near_sdk::test_utils::testing_env_with_promise_results;
+        use near_sdk::test_utils::VMContextBuilder;
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        c.payments[0].status = PaymentStatus::Processing;
+        testing_env_with_promise_results(
+            VMContextBuilder::new().current_account_id(account("tapproved.testnet"))
+                .predecessor_account_id(account("tapproved.testnet")).block_timestamp(FIXTURE_NOW).build(),
+            PromiseResult::Failed,
+        );
+        let result = c.on_transfer_result(42);
+        assert_eq!(result.status, PaymentStatus::Failed);
+        assert_eq!(c.active_payment_id, None);
+        assert_eq!(c.daily_usage[0].reserved_yocto, 0);
+    }
+
+    #[test]
+    fn expiry_releases_reservation_and_clears_active_payment() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        context_at("caller.testnet", "tapproved.testnet", FIXTURE_EXPIRY + 1);
+        c.expire_payment(42);
+        assert_eq!(c.payments[0].status, PaymentStatus::Expired);
+        assert_eq!(c.active_payment_id, None);
+        assert_eq!(c.daily_usage[0].reserved_yocto, 0);
+    }
+
     #[test]
     fn payment_view_serializes_u64_values_as_exact_json_strings() {
         let payment = Payment {
