@@ -61,6 +61,29 @@ C12 adds structured JSON relay logs with UTC timestamps, severity, stable event 
 
 C13 adds `relay/integration.test.js`, an HTTP-level integration suite that composes the relay server, durable idempotency journal, approval processor and recovery service with deterministic in-memory contract, signer and serial adapters. It verifies authenticated payment creation, pending hardware-approval context, a single approval cycle, payment status reads, durable idempotent replay and successful reconciliation. A separate failure-path test verifies that an ambiguous approval submission is journaled as uncertain, is not resubmitted on retry, and remains visible for manual recovery. These tests do not use live NEAR RPC, hardware, signing keys or on-chain transactions.
 
+## Agent-to-relay request example
+
+`examples/agent-request.js` is a minimal Node.js agent client for the authenticated relay. It submits one payment intent to `POST /v1/payment-requests`; the relay binds it to the configured canonical agent account and submits through the restricted NEAR FunctionCall key.
+
+Configure these local environment values in `.env`:
+
+```dotenv
+TAPPROVED_RELAY_URL=http://127.0.0.1:3000
+TAPPROVED_IDEMPOTENCY_KEY=agent-payment-attempt-0001
+TAPPROVED_RECIPIENT_ID=merchant.testnet
+TAPPROVED_AMOUNT_YOCTO=1000000000000000000000
+```
+
+Use the same `AGENT_API_TOKEN` configured on the relay. The client permits plain HTTP only for loopback development URLs; remote relay URLs must use HTTPS. Start the relay in one terminal, then run:
+
+```sh
+npm run agent:request
+```
+
+The client makes exactly one HTTP attempt and never generates or changes an idempotency key. If the network outcome is uncertain, preserve the same key and reconcile the relay/contract state before deciding what to do. Reusing the key with a different recipient or amount returns an idempotency conflict. Use a new key only for a genuinely new payment intent. The example does not contain private keys, create access keys, approve hardware requests or submit on-chain transactions directly.
+
+The client is an integration example, not the Phase F SDK. A live request requires a running relay with its persistent journal and a separately provisioned least-privilege request/execution key on `manex-agent.testnet`. The relay refuses to submit if that signer is not correctly scoped.
+
 ## Architecture
 
 - **Contract:** `contract/src/lib.rs` owns policy, payment state, reservations, signature verification, transfer promises and callbacks.
