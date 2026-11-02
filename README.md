@@ -21,7 +21,7 @@ This repository is under active development for the NEAR Hackathon. It is not au
 4. An automatically approved payment can be executed with `execute_approved_spend`. A pending payment requires the ESP32 to sign the canonical approval message after a physical GPIO25 press; the signature is submitted to `approve_spend`.
 5. The contract transfers NEAR from its own account and a private callback records `paid` or `failed`. Expired pending/approved payments are also cleaned up when the next valid request arrives; owner cancellation releases eligible reservations.
 
-The contract is the policy authority. The relay now authenticates agent requests, persists idempotency state and can submit `request_spend` through a restricted agent FunctionCall key. Automatic execution, hardware approval delivery and settlement tracking remain under development.
+The contract is the policy authority. The relay authenticates agent requests, persists idempotency state and submits `request_spend` through a restricted agent FunctionCall key. When the contract auto-approves a request, the relay also calls `execute_approved_spend` and reads the resulting contract payment state. Hardware approval delivery and full lifecycle tracking remain under development.
 
 ## Current project status
 
@@ -32,9 +32,9 @@ The contract is the policy authority. The relay now authenticates agent requests
 | Testnet deployment | User-confirmed deployed and tested using NEAR CLI; see [deployment status](docs/TESTNET-DEPLOYMENT.md) |
 | ESP32 approval firmware | Implemented prototype; PlatformIO build in CI |
 | Approval protocol v1 | Documented with deterministic fixture |
-| Relay | Authenticated payment-request API, persistent idempotency journal and restricted `request_spend` signer; auto-execution and lifecycle tracking remain incomplete |
+| Relay | Authenticated payment-request API, persistent idempotency journal and restricted signer for `request_spend` plus auto-approved `execute_approved_spend`; hardware approval and lifecycle tracking remain incomplete |
 | Local simulator | Implemented; uses an ephemeral key not registered on-chain |
-| Agent transaction orchestration | `request_spend` submission foundation implemented; auto-execution and recovery remain incomplete |
+| Agent transaction orchestration | `request_spend` and automatic `execute_approved_spend` submission implemented; recovery remains incomplete |
 | Serial relay-to-device bridge | Not implemented |
 | Dashboard | Not implemented |
 | Independent security audit | Not performed |
@@ -81,7 +81,7 @@ Configure the relay from the repository root:
 cp .env.example .env
 ```
 
-Set a high-entropy `AGENT_API_TOKEN` and provide `NEAR_SIGNER_PRIVATE_KEY` only if a dedicated, already-registered FunctionCall key exists on `manex-agent.testnet`. That key must be restricted to receiver `manextech.testnet`, method `request_spend` only, and a finite allowance no greater than 5 NEAR. Do not use a FullAccess key. The relay verifies this permission against the live Testnet access-key list and refuses broader keys. Keep `.env` local; it is git-ignored.
+Set a high-entropy `AGENT_API_TOKEN` and provide `NEAR_SIGNER_PRIVATE_KEY` only if a dedicated, already-registered FunctionCall key exists on `manex-agent.testnet`. That key must be restricted to receiver `manextech.testnet`, methods `request_spend` and `execute_approved_spend` only, and a finite allowance no greater than 5 NEAR. Do not use a FullAccess key. The relay verifies this permission against the live Testnet access-key list and refuses broader keys. Keep `.env` local; it is git-ignored.
 
 Start the relay:
 
