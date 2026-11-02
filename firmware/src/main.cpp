@@ -7,6 +7,7 @@
 #include "amount_format.h"
 #include "button_approval.h"
 #include "approval_protocol.h"
+#include "request_id_guard.h"
 
 namespace {
 constexpr uint8_t APPROVAL_BUTTON_PIN = 25;
@@ -24,6 +25,7 @@ bool key_ready = false;
 char serial_line[MAX_SERIAL_LINE_BYTES + 1];
 size_t serial_line_length = 0;
 bool serial_line_overflow = false;
+LastRequestIdGuard request_id_guard;
 
 bool isValidRequestId(const char* value) {
   if (!value || strlen(value) != 36) return false;
@@ -141,6 +143,14 @@ void handleRequest(const char* line) {
     return;
   }
   const char* request_id = doc["request_id"] | "";
+  if (!isValidRequestId(request_id)) {
+    printEnvelopeError(request_id, "invalid_request_id");
+    return;
+  }
+  if (!request_id_guard.accept(request_id)) {
+    printEnvelopeError(request_id, "duplicate_request");
+    return;
+  }
   uint8_t message[MAX_MESSAGE_SIZE];
   size_t message_len = 0;
   if (!encodeApproval(doc, message, message_len)) {
