@@ -17,6 +17,7 @@ export function createApprovalProcessor(options = {}) {
   const readActivePayment = options.getActivePayment ?? getActivePayment;
   const serialBridge = options.serialBridge;
   const approvalSigner = options.approvalSigner;
+  const operationStore = options.operationStore;
   const env = options.env ?? process.env;
   let inFlight = false;
 
@@ -26,6 +27,14 @@ export function createApprovalProcessor(options = {}) {
   }
   if (!approvalSigner || typeof approvalSigner.approveSpend !== "function") {
     throw new TypeError("a hardware-approval signer is required");
+  }
+  if (!operationStore ||
+      typeof operationStore.getOperation !== "function" ||
+      typeof operationStore.beginOperation !== "function" ||
+      typeof operationStore.completeOperation !== "function" ||
+      typeof operationStore.markOperationUncertain !== "function" ||
+      typeof operationStore.confirmOperation !== "function") {
+    throw new TypeError("a durable payment operation store is required");
   }
 
   return async function processPendingApproval() {
@@ -50,6 +59,15 @@ export function createApprovalProcessor(options = {}) {
         };
       }
 
+      const previousOperation = await operationStore.getOperation(
+        CANONICAL_AGENT_ID,
+        payment.id,
+        "approval"
+      );
+      if (previousOperation) {
+        throw new ApprovalProcessingError("approval_recovery_required");
+      }
+
       try {
         await serialBridge.connect();
       } catch {
@@ -65,15 +83,49 @@ export function createApprovalProcessor(options = {}) {
         );
       }
 
+      const attempt = await operationStore.beginOperation(
+        CANONICAL_AGENT_ID,
+        payment.id,
+        "approval"
+      );
+      if (!attempt.created) {
+        throw new ApprovalProcessingError("approval_recovery_required");
+      }
+
       let submitted;
       try {
         submitted = await approvalSigner.approveSpend(payment, signedResponse);
       } catch (error) {
+        try {
+          await operationStore.markOperationUncertain(CANONICAL_AGENT_ID, payment.id, "approval");
+        } catch {
+          // The durable submitting marker remains for startup reconciliation.
+        }
         if (error instanceof HardwareApprovalError) {
           throw new ApprovalProcessingError(error.code);
         }
         // A signer/RPC error may occur after broadcast. Never retry here.
         throw new ApprovalProcessingError("approval_submission_outcome_unknown");
+      }
+
+      try {
+        await operationStore.completeOperation(
+          CANONICAL_AGENT_ID,
+          payment.id,
+          "approval",
+          submitted.transaction_hash
+        );
+        const observedStatus = submitted.payment?.status;
+        if (["processing", "paid", "failed", "expired", "cancelled"].includes(observedStatus)) {
+          await operationStore.confirmOperation(
+            CANONICAL_AGENT_ID,
+            payment.id,
+            "approval",
+            observedStatus
+          );
+        }
+      } catch {
+        // The transaction may already be final. Startup recovery re-reads get_payment.
       }
 
       return {
