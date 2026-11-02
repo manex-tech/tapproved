@@ -35,7 +35,7 @@ The contract is the policy authority. The relay authenticates agent requests, pe
 | Relay | Authenticated payment-request API, persistent idempotency journal, restricted signer, pending-approval polling, payment status reads and authenticated hardware approval; transaction status and receipt tracking are implemented with explicit finality states |
 | Local simulator | Implemented; uses an ephemeral key not registered on-chain |
 | Agent transaction orchestration | `request_spend` and automatic `execute_approved_spend` submission implemented; recovery remains incomplete |
-| Serial relay-to-device bridge | Bounded newline-delimited USB serial transport module and ESP32 frame parser implemented; authenticated one-cycle approval orchestration and signature submission are implemented; lifecycle/receipt monitoring remains in progress |
+| Serial relay-to-device bridge | Bounded newline-delimited USB serial transport, ESP32 frame parser and one-cycle approval/signature submission are implemented; transaction and receipt status API now provides explicit finality and receipt outcomes |
 | Dashboard | Not implemented |
 | Independent security audit | Not performed |
 
@@ -56,7 +56,7 @@ The pending-approval API returns contract-derived fields. C7 adds a bounded newl
 
 - **Contract:** `contract/src/lib.rs` owns policy, payment state, reservations, signature verification, transfer promises and callbacks.
 - **Firmware:** `firmware/src/main.cpp` validates the configured contract/network, reconstructs the v1 message, waits for a physical button press and signs with the device Ed25519 key.
-- **Relay:** `relay/server.js` exposes health/read views, authenticated `POST /v1/payment-requests` and `GET /v1/pending-approvals` for the active contract-pending payment and `GET /v1/payments/:paymentId` for contract-backed lifecycle status; `relay/payment-requests.js` validates requests and persists idempotency; `relay/near-signer.js` verifies and uses a narrowly scoped agent FunctionCall key. `relay/near-rpc.js` queries NEAR views and transaction receipt status; `relay/serial.js` provides bounded, one-at-a-time USB serial approval transport.
+- **Relay:** `relay/server.js` exposes authenticated payment, approval and status APIs; `relay/payment-requests.js` validates requests and persists idempotency; `relay/near-signer.js` and `relay/approval-service.js` enforce separate least-privilege request/execution and hardware-approval keys. `relay/near-rpc.js` queries NEAR views and transaction receipt status; `relay/serial.js` provides bounded, one-at-a-time USB serial approval transport.
 - **Protocol:** `docs/APPROVAL-PROTOCOL.md` defines the exact signed byte sequence. `protocol/v1-vector.json` is a deterministic interoperability fixture.
 - **Simulator:** `relay/simulator.js` locally demonstrates encoding and signing with a temporary keypair. It cannot authorize an on-chain payment.
 
