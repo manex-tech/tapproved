@@ -191,3 +191,18 @@ test("operation confirmation requires an advanced or terminal contract state", a
     assert.equal((await store.listUnresolvedOperations(agentId)).length, 0);
   });
 });
+
+
+test("allows a new operation attempt only after an explicit pre-submit rejection", async () => {
+  await withStore(async (path) => {
+    const store = new JsonIdempotencyStore(path);
+    const first = await store.beginOperation(agentId, "87", "approval");
+    assert.equal(first.created, true);
+    await store.rejectOperation(agentId, "87", "approval", "invalid_device_signature");
+    const second = await store.beginOperation(agentId, "87", "approval");
+    assert.equal(second.created, true);
+    assert.equal(second.operation.state, "submitting");
+    assert.equal(second.operation.attempt_count, 2);
+    assert.equal(second.operation.error_code, null);
+  });
+});
