@@ -58,6 +58,8 @@ C10 adds a background expiry keeper. It compares the active payment's `expires_a
 
 C12 adds structured JSON relay logs with UTC timestamps, severity, stable event names, per-request correlation IDs and request duration/status. Every HTTP response includes an `x-request-id` header. Logs use an explicit field allowlist and route templates; authorization headers, tokens, private keys, signatures, request bodies, query strings, raw exception messages and stack traces are excluded. Validation errors return stable public error codes rather than internal exception text. Logger sink failures are contained so logging cannot interrupt payment or recovery control flow.
 
+C13 adds `relay/integration.test.js`, an HTTP-level integration suite that composes the relay server, durable idempotency journal, approval processor and recovery service with deterministic in-memory contract, signer and serial adapters. It verifies authenticated payment creation, pending hardware-approval context, a single approval cycle, payment status reads, durable idempotent replay and successful reconciliation. A separate failure-path test verifies that an ambiguous approval submission is journaled as uncertain, is not resubmitted on retry, and remains visible for manual recovery. These tests do not use live NEAR RPC, hardware, signing keys or on-chain transactions.
+
 ## Architecture
 
 - **Contract:** `contract/src/lib.rs` owns policy, payment state, reservations, signature verification, transfer promises and callbacks.
