@@ -1,54 +1,34 @@
-# ESP32 firmware prototype
+# ESP32 firmware
 
 Target: ESP32-WROOM-32 (PlatformIO board `esp32dev`), Arduino framework.
 
 ## Canonical deployment
 
-The firmware is compiled for the Tapproved NEAR testnet deployment:
+The only supported firmware environment targets the canonical NEAR Testnet deployment:
 
 - Contract: `manextech.testnet`
 - Network: `testnet`
 - Approval button: GPIO25
+- Serial baud rate: 115200
+- Serial framing: newline-delimited JSON, maximum input frame 2,048 bytes
 
 The contract ID and network ID are compile-time constants in `src/main.cpp`. If the canonical deployment changes, update those constants, rebuild and flash the firmware, then verify the device signs the exact contract and network values used by the relay and contract.
-
-## Disposable B10 lab deployment
-
-A separate PlatformIO environment targets the disposable B10 validation contract. It inherits the canonical ESP32 board, framework, dependencies, and base build flags, while overriding only the compiled contract ID.
-
-- Contract: `contract.tapproved-b10-lab.testnet`
-- Network: `testnet`
-- Approval button: GPIO25
-
-Build the lab firmware from this directory:
-
-```sh
-pio run -e esp32dev-lab
-```
-
-Build the canonical firmware explicitly:
-
-```sh
-pio run -e esp32dev
-```
-
-**Important:** Never upload the lab firmware for use with the canonical `manextech.testnet` deployment. Verify the selected environment before every upload. To upload the lab build, explicitly use `pio run -e esp32dev-lab --target upload`; to upload the canonical build, use `pio run -e esp32dev --target upload`.
-
-Switching build environments does not erase or regenerate the existing device key in NVS. Both builds use the same firmware key-storage namespace and seed key. The contract ID is a compile-time setting and is not stored in NVS.
 
 ## Build and flash
 
 Install PlatformIO Core, then run from this directory:
 
 ```sh
-pio run
-pio run --target upload
+pio run -e esp32dev
+pio run -e esp32dev --target upload
 pio device monitor --baud 115200
 ```
 
 Wire a normally-open push button between GPIO25 and GND. The input uses the internal pull-up. Never connect 5 V to an ESP32 GPIO.
 
-Send one JSON object per serial line with fields `contract_id`, `network_id`, `payment_id`, `recipient_id`, `amount_yocto`, `nonce`, and `expires_at_ns`. Integer values must be decimal strings. The firmware encodes the v1 payload itself, waits for the physical button, and signs with Ed25519. Amounts are converted into 16 little-endian bytes without floating point or compiler-specific 128-bit integers.
+The relay sends one JSON object per serial line with fields `contract_id`, `network_id`, `payment_id`, `recipient_id`, `amount_yocto`, `nonce`, and `expires_at_ns`. Integer values are decimal strings. The firmware uses a fixed-size input buffer, rejects oversized frames, encodes the v1 payload itself, waits for the physical button, and signs with Ed25519. Amounts are converted into 16 little-endian bytes without floating point or compiler-specific 128-bit integers.
+
+The device may print human-readable prompt lines while waiting. Its machine-readable result is one JSON line: a signed response containing `public_key_hex` and `signature_hex`, or a rejection/error status. The relay ignores prompt text and accepts only a correctly shaped signature response.
 
 ## Key handling warning
 
