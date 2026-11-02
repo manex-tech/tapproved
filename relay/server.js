@@ -2,7 +2,8 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy, getTransactionStatus, isValidTransactionHash, TransactionNotFoundError, TransactionQueryValidationError, TransactionWaitTimeoutError } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
-import { createNearAgentSigner, createNearApprovalSigner, createNearExpirySigner } from "./near-signer.js";\nimport { createPaymentExpiryMonitor, readExpiryMonitorInterval } from "./expiry-service.js";
+import { createNearAgentSigner, createNearApprovalSigner, createNearExpirySigner } from "./near-signer.js";
+import { createPaymentExpiryMonitor, readExpiryMonitorInterval } from "./expiry-service.js";
 import { createSerialBridge } from "./serial.js";
 import { createApprovalProcessor } from "./approval-service.js";
 import {
