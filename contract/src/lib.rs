@@ -1,7 +1,8 @@
 use near_sdk::json_types::{U128, U64};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
+use near_sdk::store::LookupMap;
 use near_sdk::serde::{Deserialize, Serialize};
-use near_sdk::{env, near_bindgen, AccountId, Gas, LookupMap, NearToken, PanicOnDefault, Promise, PromiseResult};
+use near_sdk::{env, near_bindgen, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseResult};
 
 const REQUEST_TTL_NS: u64 = 300_000_000_000;
 const NANOS_PER_DAY: u64 = 86_400_000_000_000;
@@ -300,11 +301,11 @@ impl Tapproved {
 
     fn active_payment(&self, payment_id: u64) -> Payment {
         if self.active_payment_id != Some(payment_id) { env::panic_str("payment is not active"); }
-        self.payments.get(&payment_id).unwrap_or_else(|| env::panic_str("payment not found"))
+        self.payments.get(&payment_id).cloned().unwrap_or_else(|| env::panic_str("payment not found"))
     }
 
     fn store_payment(&mut self, payment: Payment) {
-        self.payments.insert(&payment.id, &payment);
+        self.payments.insert(payment.id, payment);
     }
 
     /// Insert a payment after pruning the oldest terminal records when at capacity.
@@ -312,7 +313,7 @@ impl Tapproved {
     fn insert_payment(&mut self, payment: Payment) {
         while self.payment_count >= MAX_RETAINED_PAYMENTS {
             let oldest_id = self.oldest_retained_payment_id;
-            match self.payments.get(&oldest_id) {
+            match self.payments.get(&oldest_id).cloned() {
                 Some(oldest) if is_terminal(oldest.status) => {
                     self.payments.remove(&oldest_id);
                     self.payment_count -= 1;
@@ -373,7 +374,7 @@ impl Tapproved {
     }
 
     pub fn get_payment(&self, payment_id: u64) -> Option<PaymentView> {
-        self.payments.get(&payment_id).as_ref().map(payment_to_view)
+        self.payments.get(&payment_id).map(payment_to_view)
     }
 
     pub fn get_active_payment(&self) -> Option<PaymentView> {
@@ -577,7 +578,7 @@ mod tests {
         };
         c.next_payment_id = 43;
         c.daily_usage.push(DailyUsage { utc_day: FIXTURE_NOW / NANOS_PER_DAY, reserved_yocto: FIXTURE_AMOUNT });
-        c.payments.insert(&42, &payment);
+        c.payments.insert(42, payment);
         c.payment_count = 1;
         c.oldest_retained_payment_id = 42;
         c.active_payment_id = Some(42);
