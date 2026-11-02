@@ -60,7 +60,7 @@ export function buildDeviceApprovalFrame(payment) {
 export function createSerialBridge(options = {}) {
   const path = options.path ?? process.env.SERIAL_PORT;
   const baudRate = options.baudRate ?? Number(process.env.SERIAL_BAUD_RATE ?? DEFAULT_SERIAL_BAUD_RATE);
-  const timeoutMs = options.timeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? Number(process.env.SERIAL_APPROVAL_TIMEOUT_MS ?? DEFAULT_APPROVAL_TIMEOUT_MS);
   const portFactory = options.portFactory ?? ((config) => new SerialPort(config));
 
   if (typeof path !== "string" || path.length === 0) {
