@@ -1,5 +1,6 @@
 #include "key_record_policy.h"
 
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
