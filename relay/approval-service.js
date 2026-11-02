@@ -33,6 +33,7 @@ export function createApprovalProcessor(options = {}) {
       typeof operationStore.beginOperation !== "function" ||
       typeof operationStore.completeOperation !== "function" ||
       typeof operationStore.markOperationUncertain !== "function" ||
+      typeof operationStore.rejectOperation !== "function" ||
       typeof operationStore.confirmOperation !== "function") {
     throw new TypeError("a durable payment operation store is required");
   }
@@ -64,7 +65,7 @@ export function createApprovalProcessor(options = {}) {
         payment.id,
         "approval"
       );
-      if (previousOperation) {
+      if (previousOperation && previousOperation.state !== "rejected") {
         throw new ApprovalProcessingError("approval_recovery_required");
       }
 
@@ -96,8 +97,19 @@ export function createApprovalProcessor(options = {}) {
       try {
         submitted = await approvalSigner.approveSpend(payment, signedResponse);
       } catch (error) {
+        const definitelyPreSubmit = error instanceof HardwareApprovalError &&
+          !["approval_state_not_confirmed", "approval_transaction_hash_missing"].includes(error.code);
         try {
-          await operationStore.markOperationUncertain(CANONICAL_AGENT_ID, payment.id, "approval");
+          if (definitelyPreSubmit) {
+            await operationStore.rejectOperation(
+              CANONICAL_AGENT_ID,
+              payment.id,
+              "approval",
+              error.code
+            );
+          } else {
+            await operationStore.markOperationUncertain(CANONICAL_AGENT_ID, payment.id, "approval");
+          }
         } catch {
           // The durable submitting marker remains for startup reconciliation.
         }
