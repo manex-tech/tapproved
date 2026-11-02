@@ -308,7 +308,8 @@ test("does not execute payments that require physical approval", async () => {
     amount_yocto: "123456789"
   });
   assert.equal(calls, 1);
-  assert.equal(result.payment.status, "pending");
+  assert.equal(result.payment.status, "processing");
+  assert.equal(paymentReads, 2);
   assert.equal(result.execution_transaction_hash, null);
 });
 
@@ -381,6 +382,7 @@ test("submits only a locally verified registered-device signature to approve_spe
     }
   }
   const approvalEnv = { ...env, NEAR_APPROVAL_SIGNER_PRIVATE_KEY: secret };
+  let paymentReads = 0;
   const signer = await createNearApprovalSigner({
     env: approvalEnv,
     sdk: {
@@ -400,7 +402,7 @@ test("submits only a locally verified registered-device signature to approve_spe
     getPayment: async (id) => ({
       ...signed.payment,
       id,
-      status: "pending"
+      status: ++paymentReads === 1 ? "pending" : "processing"
     })
   });
 
