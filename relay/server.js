@@ -2,7 +2,9 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
-import { createNearAgentSigner } from "./near-signer.js";
+import { createNearAgentSigner, createNearApprovalSigner } from "./near-signer.js";
+import { createSerialBridge } from "./serial.js";
+import { createApprovalProcessor } from "./approval-service.js";
 import {
   IdempotencyConflictError,
   IdempotencyStoreError,
@@ -81,6 +83,7 @@ export function createRelayServer(options = {}) {
   const agentId = options.agentId ?? DEFAULT_AGENT_ID;
   const idempotencyStore = options.idempotencyStore;
   const submitPayment = options.submitPayment;
+  const processHardwareApproval = options.processHardwareApproval;
   const readActivePayment = options.getActivePayment ?? getActivePayment;
   const readPayment = options.getPayment ?? getPayment;
 
@@ -196,6 +199,29 @@ export function createRelayServer(options = {}) {
       return;
     }
 
+
+    if (request.method === "POST" && pathname === "/v1/approvals/process") {
+      if (!authenticate(request)) {
+        send(response, 401, { error: "unauthorized" }, { "www-authenticate": "Bearer" });
+        return;
+      }
+      if (typeof processHardwareApproval !== "function") {
+        send(response, 503, { error: "hardware_approval_not_configured" });
+        return;
+      }
+      try {
+        const result = await processHardwareApproval();
+        send(response, 200, result);
+      } catch (error) {
+        const code = typeof error?.code === "string" && /^[a-z0-9_]{1,64}$/.test(error.code)
+          ? error.code
+          : "hardware_approval_failed";
+        const status = code === "approval_already_in_progress" ? 409 : 502;
+        send(response, status, { error: code });
+      }
+      return;
+    }
+
     const paymentMatch = request.method === "GET"
       ? pathname.match(/^\/v1\/payments\/([0-9]+)$/)
       : null;
@@ -271,7 +297,21 @@ async function startRelay() {
     console.error(`NEAR agent signer unavailable; payment submissions disabled: ${error.message}`);
   }
 
-  const server = createRelayServer({ idempotencyStore, submitPayment });
+  let processHardwareApproval;
+  let serialBridge;
+  try {
+    const approvalSigner = await createNearApprovalSigner();
+    serialBridge = createSerialBridge();
+    processHardwareApproval = createApprovalProcessor({ approvalSigner, serialBridge });
+    console.log("Hardware-approval signer verified for approve_spend.");
+  } catch (error) {
+    console.error(`Hardware approval unavailable; device approval submission disabled: ${error.message}`);
+  }
+
+  const server = createRelayServer({ idempotencyStore, submitPayment, processHardwareApproval });
+  server.on("close", () => {
+    if (serialBridge) void serialBridge.disconnect();
+  });
   server.listen(port, () => {
     console.log(`Tapproved testnet relay listening on port ${port}`);
   });
