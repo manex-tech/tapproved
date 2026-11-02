@@ -259,3 +259,32 @@ test("approval timeout clears pending state and ignores the late timed-out respo
   assert.equal(result.signature_hex, signed.signature_hex);
   await bridge.disconnect();
 });
+
+test("discards an incomplete response frame across disconnect and reconnect", async () => {
+  const { bridge, port } = makeBridge();
+  await bridge.connect();
+
+  const interrupted = bridge.requestApproval(payment);
+  const firstRequest = JSON.parse(port.writes[0].toString("utf8"));
+  port.receive(`{"frame_version":1,"request_id":"${firstRequest.request_id}"`);
+  await bridge.disconnect();
+  await assert.rejects(interrupted, /serial_port_disconnected/);
+
+  await bridge.connect();
+  const next = bridge.requestApproval(payment);
+  const nextRequest = JSON.parse(port.writes[1].toString("utf8"));
+
+  // This is the tail of the old, interrupted response. It must not be
+  // concatenated with the new connection's input or complete a pending call.
+  port.receive(`,"status":"signed","public_key_hex":"${signed.public_key_hex}","signature_hex":"${signed.signature_hex}"}\n`);
+  assert.equal(bridge.pending, true);
+
+  port.receive(JSON.stringify({
+    ...signed,
+    frame_version: 1,
+    request_id: nextRequest.request_id
+  }) + "\n");
+  const result = await next;
+  assert.equal(result.signature_hex, signed.signature_hex);
+  await bridge.disconnect();
+});

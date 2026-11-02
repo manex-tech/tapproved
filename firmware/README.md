@@ -36,6 +36,14 @@ On first boot only, the ESP32 hardware RNG generates a 32-byte seed and stores i
 
 This is a development prototype, not hardened key custody. The seed is stored in ordinary NVS. Flash encryption, secure boot, debug-port lockdown, tamper resistance, authenticated request transport, and a trusted display are not configured. Do not use real funds or production keys.
 
+## Reset, disconnection and power-loss behavior
+
+The relay rejects an in-flight approval when the serial port closes, clears its partial incoming response buffer, and uses a fresh request ID after reconnect. Late responses for an earlier request are ignored. The relay test suite covers disconnect during an approval, an incomplete response frame across reconnect, and stale response suppression.
+
+The ESP32 request-ID replay window is volatile RAM state. A device reset clears that window and discards any incomplete serial input or in-flight button wait. The NVS Ed25519 seed is persistent: a complete 32-byte record is loaded again on the next boot, preserving the device identity. An absent record is treated as first boot and causes key generation; this is also indistinguishable from an NVS record that was completely erased, so the resulting public key may no longer match the contract until an owner-authorized rotation is completed. If a record is present but incomplete or has the wrong length, startup fails closed and does not silently replace it. Host tests model these record-policy outcomes and reset the volatile request-ID guard.
+
+These are deterministic host/relay tests, not physical brownout, flash-write interruption or cable-pull experiments. Actual ESP32 reset and power-cut validation remains a separate hardware test. The USB-to-UART bridge may not provide the firmware with a reliable indication that the host application disconnected; the relay still rejects stale or uncorrelated responses.
+
 ## Approval UI limitation
 
 Payment details are printed to USB serial and GPIO25 requires a physical button press. Serial output is not a trusted display: a compromised host or relay could misrepresent the request. Do not use this as a blind-signing production device. A dedicated trusted display and authenticated device-to-relay transport are required before production.

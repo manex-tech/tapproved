@@ -12,5 +12,12 @@ int main() {
   assert(!guard.accept(second));
   assert(!guard.accept(first));
   assert(!guard.accept("short"));
+
+  // The replay window is deliberately volatile. A new guard models a device
+  // reboot: the same transport ID can be seen again, while contract payment
+  // state and canonical signature checks remain the durable replay authority.
+  LastRequestIdGuard after_reset;
+  assert(after_reset.accept(first));
+  assert(!after_reset.accept(first));
   return 0;
 }
