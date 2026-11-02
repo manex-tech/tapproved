@@ -26,7 +26,7 @@ A compromised relay may delay, replay or misroute messages, but it must not be a
 3. The contract validates policy and creates the payment. The relay reads the resulting payment record from the contract; it does not invent nonce, payment ID or expiry.
 4. If the contract returns an automatically approved payment, the relay submits `execute_approved_spend` through the backend signer and reads the contract payment record again. Pending payments are never auto-executed.
 5. If the payment is pending, the relay publishes the contract-derived payment context to the ESP32 over the serial bridge.
-6. The ESP32 validates contract ID, network ID, numeric encodings and expiry, presents recipient and amount, and waits for a physical button press. It returns the v1 Ed25519 signature and public key only after approval.
+6. The relay obtains the contract-derived pending payment through `GET /v1/pending-approvals` and sends its canonical fields to the ESP32 over bounded newline-delimited USB serial. The ESP32 validates contract ID, network ID and numeric encodings, presents recipient and amount, and waits for a physical button press. It returns the v1 Ed25519 signature and public key only after approval.
 7. The relay validates the signature locally as an early error check, then submits `approve_spend` with the payment ID and signature. The contract independently verifies the signature against its registered key and its own stored payment fields.
 8. The contract transfer promise and callback determine terminal settlement. The relay observes contract state and transaction receipts; it never marks a payment Paid based only on an RPC submission acknowledgement.
 9. On ambiguous transfer/callback outcomes, the relay leaves the payment Processing, inspects final receipts and alerts the operator. It must not blindly retry a transfer or call owner reconciliation without verified transfer evidence.
@@ -41,7 +41,7 @@ Keep the implementation modular and testable:
 - `relay/near-rpc.js`: read-only JSON-RPC views and receipt/status queries with request timeouts and strict response validation.
 - `relay/near-signer.js`: isolated transaction submission interface. No secret key is accepted from HTTP request data.
 - `relay/contract.js`: typed contract method wrappers, exact decimal-string handling for u64/u128 values, and transaction outcome parsing.
-- `relay/serial.js`: serial port lifecycle, bounded newline-delimited JSON frames, correlation IDs, timeouts, reconnect behavior and one outstanding approval at a time.
+- `relay/serial.js`: serial port lifecycle, bounded newline-delimited JSON frames, one outstanding approval at a time, validated signature responses, explicit disconnect/error handling and bounded approval timeout. Reconnection is explicit; the bridge never retries a physical approval automatically.
 - `relay/orchestrator.js`: payment lifecycle state machine driven by contract observations and serial events.
 - `relay/server.js`: HTTP routes, authentication, input limits, structured error mapping and graceful shutdown.
 
