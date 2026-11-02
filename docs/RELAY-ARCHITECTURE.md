@@ -13,7 +13,7 @@ The relay is an orchestration and transport service, not a policy authority.
 - **Agent client:** authenticates to the relay and submits an idempotent payment intent. It cannot choose whether a payment is automatically approved or hardware-gated.
 - **Relay API:** authenticates callers, validates request shape, applies rate and size limits, assigns an idempotency key, submits only contract-supported calls, and tracks lifecycle state.
 - **NEAR contract:** remains authoritative for agent identity, recipient allowlisting, pause state, soft/hard/daily limits, active-payment exclusion, expiry, device signature verification and treasury settlement.
-- **NEAR transaction signer:** a dedicated backend-controlled key submits contract calls. It must not be the agent's key or the ESP32 device key. It is a privileged operational credential and must be isolated from the public API process where practical.
+- **NEAR transaction signer:** a dedicated Ed25519 FunctionCall key on `manex-agent.testnet` submits only `request_spend` and `execute_approved_spend` to `manextech.testnet`. It is distinct from any FullAccess owner key and from the ESP32 device key. It is a limited operational credential and must be isolated from the public API process where practical.
 - **ESP32:** holds the device Ed25519 seed, validates the complete signed payment context against its compiled/configured contract and network, displays the request over the current serial console, and signs only after an intentional GPIO25 press. The relay never receives the private seed.
 - **Serial bridge:** transports bounded, framed JSON messages between relay and device. Transport delivery is not approval; only the contract-verified signature authorizes a pending payment.
 
