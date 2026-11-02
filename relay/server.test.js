@@ -219,7 +219,16 @@ test("pending-approvals endpoint returns only a contract-pending payment", async
       network: "testnet",
       contract_id: "manextech.testnet",
       approval_required: true,
-      payment: pendingPayment
+      payment: pendingPayment,
+      approval_request: {
+        contract_id: "manextech.testnet",
+        network_id: "testnet",
+        payment_id: "15",
+        recipient_id: "merchant.testnet",
+        amount_yocto: "1000000000000000000000",
+        nonce: "15",
+        expires_at_ns: "1793519712345678901"
+      }
     });
     assert.equal(reads, 1);
     assert.deepEqual(queryOptions, { env: { NEAR_CONTRACT_ID: "manextech.testnet" } });
@@ -287,5 +296,151 @@ test("pending-approvals endpoint rejects an unexpected contract agent", async ()
     });
     assert.equal(response.status, 502);
     assert.deepEqual(await response.json(), { error: "near_rpc_failed" });
+  });
+});
+
+
+test("pending-approvals exposes a canonical device request derived only from contract fields", async () => {
+  const payment = {
+    id: "21",
+    agent_id: "manex-agent.testnet",
+    recipient_id: "merchant.testnet",
+    amount_yocto: "987654321",
+    nonce: "21",
+    created_at_ns: "1793519412345678901",
+    expires_at_ns: "1793519712345678901",
+    status: "pending",
+    hardware_approved: false
+  };
+  await withServer({
+    ...authOptions(),
+    getActivePayment: async () => payment
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/pending-approvals`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body.approval_request, {
+      contract_id: "manextech.testnet",
+      network_id: "testnet",
+      payment_id: "21",
+      recipient_id: "merchant.testnet",
+      amount_yocto: "987654321",
+      nonce: "21",
+      expires_at_ns: "1793519712345678901"
+    });
+  });
+});
+
+test("payment status endpoint returns pending state and approval flag", async () => {
+  const payment = {
+    id: "25",
+    agent_id: "manex-agent.testnet",
+    recipient_id: "merchant.testnet",
+    amount_yocto: "123456789",
+    nonce: "25",
+    created_at_ns: "1793519412345678901",
+    expires_at_ns: "1793519712345678901",
+    status: "pending",
+    hardware_approved: false
+  };
+  let observed;
+  await withServer({
+    ...authOptions(),
+    getPayment: async (id, options) => {
+      observed = { id, options };
+      return payment;
+    }
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/payments/25`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      network: "testnet",
+      contract_id: "manextech.testnet",
+      approval_required: true,
+      terminal: false,
+      payment
+    });
+    assert.deepEqual(observed, {
+      id: "25",
+      options: { env: { NEAR_CONTRACT_ID: "manextech.testnet" } }
+    });
+  });
+});
+
+test("payment status endpoint marks terminal lifecycle states", async () => {
+  for (const status of ["paid", "failed", "expired", "cancelled"]) {
+    const payment = {
+      id: "26",
+      agent_id: "manex-agent.testnet",
+      status
+    };
+    await withServer({
+      ...authOptions(),
+      getPayment: async () => payment
+    }, async (base) => {
+      const response = await fetch(`${base}/v1/payments/26`, {
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.approval_required, false);
+      assert.equal(body.terminal, true);
+      assert.equal(body.payment.status, status);
+    });
+  }
+});
+
+test("payment status endpoint rejects unauthenticated, absent and foreign-agent records", async () => {
+  let reads = 0;
+  await withServer({
+    ...authOptions(),
+    getPayment: async () => { reads += 1; return null; }
+  }, async (base) => {
+    const unauthorized = await fetch(`${base}/v1/payments/27`);
+    assert.equal(unauthorized.status, 401);
+    assert.equal(reads, 0);
+    const missing = await fetch(`${base}/v1/payments/27`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(missing.status, 404);
+    assert.equal((await missing.json()).error, "payment_not_found");
+  });
+
+  await withServer({
+    ...authOptions(),
+    getPayment: async () => ({ id: "28", agent_id: "other.testnet", status: "pending" })
+  }, async (base) => {
+    const foreign = await fetch(`${base}/v1/payments/28`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(foreign.status, 404);
+  });
+});
+
+test("payment status endpoint rejects unsafe integer IDs and maps RPC failures", async () => {
+  await withServer({
+    ...authOptions(),
+    getPayment: async () => { throw new RangeError("unsafe ID"); }
+  }, async (base) => {
+    const invalid = await fetch(`${base}/v1/payments/9007199254740992`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(invalid.status, 400);
+    assert.equal((await invalid.json()).error, "invalid_payment_id");
+  });
+
+  await withServer({
+    ...authOptions(),
+    getPayment: async () => { throw new Error("rpc offline"); }
+  }, async (base) => {
+    const failed = await fetch(`${base}/v1/payments/29`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(failed.status, 502);
+    assert.equal((await failed.json()).error, "near_rpc_failed");
   });
 });
