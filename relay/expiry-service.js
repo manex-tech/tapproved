@@ -60,9 +60,7 @@ export function createPaymentExpiryMonitor(options = {}) {
   async function runOnce() {
     if (running) return { state: "already_running" };
     running = (async () => {
-      const active = await readActive({
-        env: { ...env, NEAR_CONTRACT_ID: CANONICAL_CONTRACT_ID }
-      });
+      const active = await readActive({ env: rpcEnv });
       if (!active) return { state: "idle" };
       if (active.agent_id !== CANONICAL_AGENT_ID ||
           typeof active.id !== "string" || !/^[0-9]+$/.test(active.id) ||
@@ -76,9 +74,7 @@ export function createPaymentExpiryMonitor(options = {}) {
         return { state: "attempt_suppressed", payment_id: active.id };
       }
 
-      const blockTimestampNs = await readBlockTime({
-        env: { ...env, NEAR_CONTRACT_ID: CANONICAL_CONTRACT_ID }
-      });
+      const blockTimestampNs = await readBlockTime({ env: rpcEnv });
       if (typeof blockTimestampNs !== "string" || !/^[0-9]+$/.test(blockTimestampNs)) {
         throw new Error("finalized NEAR block timestamp is invalid");
       }
@@ -97,9 +93,7 @@ export function createPaymentExpiryMonitor(options = {}) {
       const submitted = await expirySigner.expirePayment(active.id);
       let confirmedPayment = null;
       try {
-        confirmedPayment = await readPayment(active.id, {
-          env: { ...env, NEAR_CONTRACT_ID: CANONICAL_CONTRACT_ID }
-        });
+        confirmedPayment = await readPayment(active.id, { env: rpcEnv });
       } catch {
         return {
           state: "submitted_unconfirmed",
