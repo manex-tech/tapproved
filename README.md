@@ -49,7 +49,7 @@ All routes below require the configured bearer token except `GET /health`.
 - `GET /v1/payments/:paymentId` reads the requested payment from the contract and returns its current lifecycle status. The response distinguishes pending approval from terminal `paid`, `failed`, `expired` and `cancelled` states. Missing or foreign-agent payment records are not exposed.
 - Both endpoints are read-only. They do not approve, expire, execute or transfer funds. Contract state remains authoritative.
 
-The approval request is shaped for the ESP32 serial protocol, but C7 must still implement the serial transport and delivery/retry behavior.
+The serial transport uses one outstanding approval at a time, bounded newline-delimited JSON frames, a 35-second response timeout and fail-closed disconnect/error handling. It does not automatically retry a physical approval. Wiring the transport into pending-approval orchestration and verifying/submitting signatures remain subsequent tasks.
 
 ## Architecture
 
