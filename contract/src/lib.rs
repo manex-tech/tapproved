@@ -882,6 +882,7 @@ mod tests {
         assert_eq!(usage.spent_yocto.0, 90);
         assert_eq!(usage.reserved_yocto.0, 0);
         assert_eq!(usage.used_yocto.0, 90);
+        assert_eq!(usage.remaining_yocto.0, 60);
     }
 
     #[test]
