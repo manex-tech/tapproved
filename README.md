@@ -21,7 +21,7 @@ This repository is under active development for the NEAR Hackathon. It is not au
 4. An automatically approved payment can be executed with `execute_approved_spend`. A pending payment requires the ESP32 to sign the canonical approval message after a physical GPIO25 press; the signature is submitted to `approve_spend`.
 5. The contract transfers NEAR from its own account and a private callback records `paid` or `failed`. Expired pending/approved payments are also cleaned up when the next valid request arrives; owner cancellation releases eligible reservations.
 
-The contract is the policy authority. The relay authenticates agent requests, persists idempotency state and submits `request_spend` through a restricted agent FunctionCall key. When the contract auto-approves a request, the relay also calls `execute_approved_spend` and reads the resulting contract payment state. Pending hardware approvals are exposed through an authenticated contract-backed poll, and individual payment states can be queried by payment ID. The relay returns a device-ready approval context but does not yet transport it to the ESP32.
+The contract is the policy authority. The relay authenticates agent requests, persists idempotency state and submits `request_spend` through a restricted agent FunctionCall key. When the contract auto-approves a request, the relay also calls `execute_approved_spend` and reads the resulting contract payment state. Pending hardware approvals are exposed through an authenticated contract-backed poll, and individual payment states can be queried by payment ID. The relay exposes a device-ready approval context. A bounded USB serial transport module and fixed-size ESP32 frame parser are implemented and tested; connecting them to the approval lifecycle and submitting signatures remain subsequent tasks.
 
 ## Current project status
 
@@ -35,7 +35,7 @@ The contract is the policy authority. The relay authenticates agent requests, pe
 | Relay | Authenticated payment-request API, persistent idempotency journal and restricted signer for `request_spend` plus auto-approved `execute_approved_spend`; pending approval polling and payment status reads implemented; serial delivery and signature submission remain incomplete |
 | Local simulator | Implemented; uses an ephemeral key not registered on-chain |
 | Agent transaction orchestration | `request_spend` and automatic `execute_approved_spend` submission implemented; recovery remains incomplete |
-| Serial relay-to-device bridge | Not implemented |
+| Serial relay-to-device bridge | Bounded newline-delimited USB serial transport and fixed-size firmware frame parser implemented; lifecycle orchestration and signature submission remain incomplete |
 | Dashboard | Not implemented |
 | Independent security audit | Not performed |
 
@@ -55,7 +55,7 @@ The serial transport uses one outstanding approval at a time, bounded newline-de
 
 - **Contract:** `contract/src/lib.rs` owns policy, payment state, reservations, signature verification, transfer promises and callbacks.
 - **Firmware:** `firmware/src/main.cpp` validates the configured contract/network, reconstructs the v1 message, waits for a physical button press and signs with the device Ed25519 key.
-- **Relay:** `relay/server.js` exposes health/read views, authenticated `POST /v1/payment-requests` and `GET /v1/pending-approvals` for the active contract-pending payment and `GET /v1/payments/:paymentId` for contract-backed lifecycle status; `relay/payment-requests.js` validates requests and persists idempotency; `relay/near-signer.js` verifies and uses a narrowly scoped agent FunctionCall key. `relay/near-rpc.js` queries NEAR views.
+- **Relay:** `relay/server.js` exposes health/read views and authenticated payment/pending-approval APIs; `relay/payment-requests.js` validates requests and persists idempotency; `relay/near-signer.js` verifies and uses a narrowly scoped agent FunctionCall key; `relay/serial.js` provides bounded USB serial transport with one pending approval at a time. `relay/near-rpc.js` queries NEAR views.
 - **Protocol:** `docs/APPROVAL-PROTOCOL.md` defines the exact signed byte sequence. `protocol/v1-vector.json` is a deterministic interoperability fixture.
 - **Simulator:** `relay/simulator.js` locally demonstrates encoding and signing with a temporary keypair. It cannot authorize an on-chain payment.
 
