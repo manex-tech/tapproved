@@ -12,6 +12,41 @@ const pendingPayment = {
   status: "pending"
 };
 
+function createOperationStore() {
+  const operations = new Map();
+  const key = (agentId, paymentId, kind) => `${agentId}:${paymentId}:${kind}`;
+  return {
+    operations,
+    async getOperation(agentId, paymentId, kind) {
+      return operations.get(key(agentId, paymentId, kind)) ?? null;
+    },
+    async beginOperation(agentId, paymentId, kind) {
+      const id = key(agentId, paymentId, kind);
+      if (operations.has(id)) return { created: false, operation: operations.get(id) };
+      const operation = { agent_id: agentId, payment_id: paymentId, kind, state: "submitting" };
+      operations.set(id, operation);
+      return { created: true, operation };
+    },
+    async completeOperation(agentId, paymentId, kind, transactionHash) {
+      const operation = operations.get(key(agentId, paymentId, kind));
+      operation.state = "submitted";
+      operation.transaction_hash = transactionHash;
+      return operation;
+    },
+    async markOperationUncertain(agentId, paymentId, kind) {
+      const operation = operations.get(key(agentId, paymentId, kind));
+      operation.state = "uncertain";
+      return operation;
+    },
+    async confirmOperation(agentId, paymentId, kind, observedStatus) {
+      const operation = operations.get(key(agentId, paymentId, kind));
+      operation.state = "confirmed";
+      operation.observed_status = observedStatus;
+      return operation;
+    }
+  };
+}
+
 function dependencies(overrides = {}) {
   const calls = { reads: 0, connects: 0, requests: 0, submits: 0 };
   const serialBridge = {
@@ -30,7 +65,9 @@ function dependencies(overrides = {}) {
       return { transaction_hash: "approval-transaction", payment: { ...payment, status: "processing" } };
     }
   };
+  const operationStore = overrides.operationStore ?? createOperationStore();
   const processor = createApprovalProcessor({
+    operationStore,
     getActivePayment: async () => {
       calls.reads += 1;
       return pendingPayment;
@@ -39,7 +76,7 @@ function dependencies(overrides = {}) {
     approvalSigner,
     ...overrides
   });
-  return { processor, calls };
+  return { processor, calls, operationStore };
 }
 
 test("does not connect to hardware when there is no pending payment", async () => {
@@ -112,9 +149,9 @@ test("prevents concurrent physical approval cycles", async () => {
   assert.equal(result.state, "submitted");
 });
 
-test("treats an ambiguous signer failure as unknown and never retries submission", async () => {
+test("persists ambiguous approval submissions and suppresses retries", async () => {
   let submissions = 0;
-  const { processor } = dependencies({
+  const { processor, operationStore } = dependencies({
     approvalSigner: {
       async approveSpend() {
         submissions += 1;
@@ -123,5 +160,31 @@ test("treats an ambiguous signer failure as unknown and never retries submission
     }
   });
   await assert.rejects(processor(), (error) => error.code === "approval_submission_outcome_unknown");
+  assert.equal((await operationStore.getOperation("manex-agent.testnet", "45", "approval")).state, "uncertain");
+  await assert.rejects(processor(), (error) => error.code === "approval_recovery_required");
   assert.equal(submissions, 1);
+});
+
+
+test("does not ask the ESP32 to approve again while an interrupted attempt needs reconciliation", async () => {
+  const operationStore = createOperationStore();
+  await operationStore.beginOperation("manex-agent.testnet", "45", "approval");
+  await operationStore.markOperationUncertain("manex-agent.testnet", "45", "approval");
+  const { processor, calls } = dependencies({ operationStore });
+  await assert.rejects(
+    processor(),
+    (error) => error.code === "approval_recovery_required"
+  );
+  assert.equal(calls.connects, 0);
+  assert.equal(calls.requests, 0);
+  assert.equal(calls.submits, 0);
+});
+
+test("records and confirms a successful approval transaction", async () => {
+  const { processor, operationStore } = dependencies();
+  await processor();
+  const operation = await operationStore.getOperation("manex-agent.testnet", "45", "approval");
+  assert.equal(operation.state, "confirmed");
+  assert.equal(operation.transaction_hash, "approval-transaction");
+  assert.equal(operation.observed_status, "processing");
 });
