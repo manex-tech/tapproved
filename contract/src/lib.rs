@@ -1359,7 +1359,8 @@ mod tests {
         let c = Tapproved::new(account("agent.testnet"), vec![7; 32], U128(10), U128(100), U128(1_000),
             vec![account("merchant.testnet")], "testnet".to_string());
         let metrics = c.get_storage_metrics();
-        assert!(metrics.required_storage_balance_yocto.0 > 0);
+        assert_eq!(metrics.required_storage_balance_yocto.0,
+            (metrics.storage_usage_bytes.0 as u128) * metrics.storage_byte_cost_yocto.0);
         assert_eq!(metrics.account_balance_yocto.0, 1_000_000);
         assert_eq!(metrics.available_balance_yocto.0,
             1_000_000u128.saturating_sub(metrics.required_storage_balance_yocto.0));
