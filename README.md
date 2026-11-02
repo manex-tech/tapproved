@@ -2,6 +2,8 @@
 
 **AI agents cannot spend above their routine limit without a physical approval.**
 
+**Project tracking:** [Master Development Checklist](docs/MASTER-DEVELOPMENT-CHECKLIST.md) — canonical task-by-task progress, verification evidence and next checkpoint.
+
 Tapproved is a testnet prototype for hardware-backed spending authorization on NEAR. A registered agent requests payments from a contract-controlled treasury. The contract enforces spending policy. Payments within the soft limit can be executed automatically; larger payments require an Ed25519 signature from a registered ESP32 device after a physical button press.
 
 **Network:** NEAR testnet  
