@@ -23,7 +23,7 @@ The current contract does not expose owner methods to change the three spending 
 
 Only the registered agent may call `request_spend`. The contract rejects requests when paused, when another payment is active, for zero amounts, above the hard limit, or to a recipient outside the allowlist.
 
-The amount is reserved against the UTC-day bucket at request time. A request at or below the soft limit enters `approved`; a request above the soft limit and at or below the hard limit enters `pending`. Each payment receives a sequential ID, which is also used as its nonce, and expires five minutes after creation.
+The amount is reserved against its creation UTC day at request time. The daily limit is enforced against committed spend plus outstanding reservations. A request at or below the soft limit enters `approved`; a request above the soft limit and at or below the hard limit enters `pending`. Each payment receives a sequential ID, which is also used as its nonce, and expires five minutes after creation.
 
 Only one payment may be active at a time. This deliberately simple model limits throughput.
 
@@ -60,9 +60,9 @@ The owner can pause/unpause spending, cancel an eligible active payment, rotate 
 
 Payment records are stored in a `LookupMap` and looked up by ID. The contract retains at most 1,000 records. When full, insertion prunes oldest terminal records (`paid`, `failed`, `expired` or `cancelled`). It refuses insertion if the oldest record is not terminal or the retention index is inconsistent.
 
-Daily accounting uses a `LookupMap` keyed by UTC day for constant-time record lookup, plus a bounded day index. Each record tracks `spent_yocto` and `reserved_yocto` separately; the daily cap is enforced against their checked sum. Successful settlement moves the amount from reserved to spent. Failed, expired and cancelled payments release the reservation from the payment's original UTC day, including when expiry occurs after midnight. The contract retains the current UTC day and the preceding 89 days (90 day buckets maximum), pruning older records during a new request. Records with outstanding reservations are never pruned; if the bounded index cannot safely make room, the new request fails closed. The `get_daily_usage(utc_day)` view returns `spent_yocto`, `reserved_yocto`, `total_yocto` and `daily_limit_yocto`.
+Daily accounting uses a `LookupMap` keyed by UTC day for constant-time record lookup, plus a bounded day index. Each record tracks `spent_yocto` and `reserved_yocto` separately; the daily cap is enforced against their checked sum. Successful settlement moves the amount from reserved to spent. Failed, expired and cancelled payments release the reservation from the payment's original UTC day, including when expiry occurs after midnight. The contract retains the current UTC day and the preceding 89 days (90 day buckets maximum), pruning older records during a new request. Records with outstanding reservations are never pruned; if the bounded index cannot safely make room, the new request fails closed. The `get_daily_usage(utc_day)` view returns `spent_yocto`, `reserved_yocto`, `used_yocto` (their sum), `remaining_yocto` and `daily_limit_yocto`. Queries for records outside the retention window return zero usage.
 
-The current persistent state layout is not compatible with earlier contract layouts. Do not assume an in-place migration exists. A change to Borsh state layout requires a deliberate upgrade/redeployment plan and verified state handling.
+The current persistent state layout is not compatible with earlier contract layouts. Do not assume an in-place migration exists. This daily-accounting change replaces the prior `Vec<DailyUsage>` with a keyed `LookupMap` and bounded day-key index, changing the Borsh state layout. The canonical deployed `manextech.testnet` account remains on its previously deployed layout until a separately approved deployment. Do not call this branch's new ABI against the existing account. A fresh contract account is required unless a separately designed and verified migration is implemented. No deployment is performed by this change.
 
 ## Payment states
 
@@ -83,7 +83,7 @@ Read methods include:
 - `get_policy()`
 - `get_payment(payment_id)`
 - `get_active_payment()`
-- `get_daily_usage(utc_day)`
+- `get_daily_usage(utc_day)` returns separate spent and reserved values, total used, remaining capacity and the configured daily limit. Historical records are retained for 90 UTC days.
 
 The JSON views wrap u64 and u128 values using NEAR SDK `U64` and `U128` types to preserve integer precision for JavaScript clients.
 
