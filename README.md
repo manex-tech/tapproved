@@ -36,7 +36,7 @@ The contract is the policy authority. The relay authenticates agent requests, pe
 | Relay | Authenticated payment, approval, transaction and recovery APIs; RPC configuration locked to `testnet`, `manextech.testnet` and `manex-agent.testnet`; durable request/operation journal; separate least-privilege request, approval and expiry signers; bounded ESP32 serial bridge; transaction receipt polling; finalized-chain-time expiry and restart-recovery monitors; HTTP-level integration coverage for payment, hardware approval, idempotency and recovery flows |
 | Local simulator | Implemented; uses an ephemeral key not registered on-chain |
 | Agent transaction orchestration | `request_spend`, automatic `execute_approved_spend`, and durable restart recovery for approval/expiry operations implemented; uncertain request attribution is retained for manual review |
-| Serial relay-to-device bridge | Bounded newline-delimited USB serial transport, ESP32 frame parser and one-cycle approval/signature submission are implemented; transaction and receipt status API now provides explicit finality and receipt outcomes |
+| Serial relay-to-device bridge | Bounded newline-delimited USB serial transport with versioned UUID-correlated request/response frames, ESP32 frame parser and one-cycle approval/signature submission are implemented; transaction and receipt status API now provides explicit finality and receipt outcomes |
 | Dashboard | Not implemented |
 | Independent security audit | Not performed |
 
