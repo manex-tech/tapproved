@@ -24,6 +24,7 @@ bool serial_line_overflow = false;
 
 bool parseU64(const char* text, uint64_t& out) {
   if (!text || !*text) return false;
+  if (text[0] == '0' && text[1] != '\0') return false;
   uint64_t value = 0;
   for (const char* p = text; *p; ++p) {
     if (*p < '0' || *p > '9') return false;
@@ -38,6 +39,7 @@ bool parseU64(const char* text, uint64_t& out) {
 // Decimal u128 parser: emits 16 little-endian bytes without compiler-specific __int128.
 bool parseU128LE(const char* text, uint8_t out[16]) {
   if (!text || !*text) return false;
+  if (text[0] == '0' && text[1] != '\0') return false;
   memset(out, 0, 16);
   for (const char* p = text; *p; ++p) {
     if (*p < '0' || *p > '9') return false;
@@ -92,21 +94,52 @@ void printEnvelopeError(const char* request_id, const char* code) {
   }
 }
 
+bool isValidAccountId(const char* value) {
+  if (!value) return false;
+  const size_t length = strlen(value);
+  if (length < 2 || length > 64) return false;
+  bool previous_separator = false;
+  for (size_t i = 0; i < length; ++i) {
+    const char character = value[i];
+    const bool alphanumeric = (character >= 'a' && character <= 'z') ||
+                              (character >= '0' && character <= '9');
+    if (alphanumeric) {
+      previous_separator = false;
+      continue;
+    }
+    const bool separator = character == '.' || character == '-' || character == '_';
+    if (!separator || i == 0 || i + 1 == length || previous_separator) return false;
+    previous_separator = true;
+  }
+  return true;
+}
+
+bool isNonZeroU128LE(const uint8_t value[16]) {
+  for (size_t i = 0; i < 16; ++i) {
+    if (value[i] != 0) return true;
+  }
+  return false;
+}
+
 bool encodeApproval(const JsonDocument& doc, uint8_t* out, size_t& out_len) {
   const char* contract_id = doc["contract_id"] | "";
   const char* network_id = doc["network_id"] | "";
   const char* request_id = doc["request_id"] | "";
-  if ((doc["frame_version"] | 0) != 1 || !isValidRequestId(request_id)) return false;
+  const char* agent_id = doc["agent_id"] | "";
+  const char* status = doc["status"] | "";
+  if ((doc["frame_version"] | 0) != 1 || !isValidRequestId(request_id) ||
+      strcmp(agent_id, "manex-agent.testnet") != 0 || strcmp(status, "pending") != 0) return false;
   const char* recipient_id = doc["recipient_id"] | "";
   const char* amount = doc["amount_yocto"] | "";
   uint64_t payment_id, nonce, expires_at_ns;
   uint8_t amount_le[16];
   if (strcmp(contract_id, CONFIGURED_CONTRACT_ID) != 0 ||
       strcmp(network_id, CONFIGURED_NETWORK_ID) != 0 ||
-      !parseU64(doc["payment_id"] | "", payment_id) ||
+      !isValidAccountId(recipient_id) ||
+      !parseU64(doc["payment_id"] | "", payment_id) || payment_id == 0 ||
       !parseU64(doc["nonce"] | "", nonce) ||
-      !parseU64(doc["expires_at_ns"] | "", expires_at_ns) ||
-      !parseU128LE(amount, amount_le)) return false;
+      !parseU64(doc["expires_at_ns"] | "", expires_at_ns) || expires_at_ns == 0 ||
+      !parseU128LE(amount, amount_le) || !isNonZeroU128LE(amount_le)) return false;
 
   size_t offset = 0;
   const uint8_t domain[] = {'T','A','P','P','R','O','V','E','D',0,1};
