@@ -72,7 +72,7 @@ The current persistent state layout is not compatible with earlier contract layo
 
 `pending` or `approved` → `expired` or `cancelled`
 
-`processing` is not eligible for expiry or owner cancellation. Failed, expired and cancelled payments release their reservations. Paid payments retain the reservation as consumed daily capacity.
+`processing` is not eligible for expiry or owner cancellation. Failed, expired and cancelled payments release their reservations. Paid payments move the amount from reserved usage into spent usage, preserving the same daily-cap consumption.
 
 ## Events and views
 
