@@ -8,6 +8,7 @@ const REQUEST_TTL_NS: u64 = 300_000_000_000;
 const NANOS_PER_DAY: u64 = 86_400_000_000_000;
 const MAX_RETAINED_PAYMENTS: u64 = 1_000;
 const MAX_RETAINED_DAILY_DAYS: usize = 90;
+const MAX_ALLOWED_RECIPIENTS: usize = 100;
 
 /// Persistent policy and payment authorization state.
 #[near_bindgen]
@@ -94,6 +95,16 @@ pub struct PaymentView {
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
+pub struct StorageMetricsView {
+    pub storage_usage_bytes: U64,
+    pub storage_byte_cost_yocto: U128,
+    pub required_storage_balance_yocto: U128,
+    pub account_balance_yocto: U128,
+    pub available_balance_yocto: U128,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(crate = "near_sdk::serde")]
 pub struct DailyUsageView {
     pub utc_day: U64,
     pub spent_yocto: U128,
@@ -159,6 +170,39 @@ impl Tapproved {
         self.active_payment_id = None;
     }
 
+    /// Atomically update all spending limits without invalidating retained usage or reservations.
+    pub fn update_spending_limits(
+        &mut self,
+        soft_limit_yocto: U128,
+        hard_limit_yocto: U128,
+        daily_limit_yocto: U128,
+    ) {
+        self.assert_owner();
+        let (soft, hard, daily) = (soft_limit_yocto.0, hard_limit_yocto.0, daily_limit_yocto.0);
+        if let Err(reason) = validate_policy(
+            &self.device_public_key, soft, hard, daily, &self.allowed_recipients, &self.network_id,
+        ) {
+            env::panic_str(reason);
+        }
+        for day in &self.retained_daily_days {
+            let usage = self.daily_usage.get(day)
+                .unwrap_or_else(|| env::panic_str("daily usage retention index is inconsistent"));
+            if usage.utc_day != *day {
+                env::panic_str("daily usage day key is inconsistent");
+            }
+            let used = usage.spent_yocto.checked_add(usage.reserved_yocto)
+                .unwrap_or_else(|| env::panic_str("daily usage overflow"));
+            if used > daily {
+                env::panic_str("daily limit cannot be lower than retained daily usage");
+            }
+        }
+        let previous = (self.soft_limit_yocto, self.hard_limit_yocto, self.daily_limit_yocto);
+        self.soft_limit_yocto = soft;
+        self.hard_limit_yocto = hard;
+        self.daily_limit_yocto = daily;
+        emit_policy_limits_updated(&self.owner_id, previous, (soft, hard, daily));
+    }
+
     /// Replace the registered ESP32 Ed25519 public key.
     pub fn rotate_device_key(&mut self, device_public_key: Vec<u8>) {
         self.assert_owner();
@@ -178,6 +222,9 @@ impl Tapproved {
     pub fn add_allowed_recipient(&mut self, recipient_id: AccountId) {
         self.assert_owner();
         if self.allowed_recipients.contains(&recipient_id) { env::panic_str("recipient is already allowlisted"); }
+        if self.allowed_recipients.len() >= MAX_ALLOWED_RECIPIENTS {
+            env::panic_str("recipient allowlist has reached its maximum size of 100");
+        }
         self.allowed_recipients.push(recipient_id);
     }
 
@@ -218,6 +265,8 @@ impl Tapproved {
         if self.paused {
             env::panic_str("spending is paused");
         }
+        let now = env::block_timestamp();
+        self.expire_stale_active_payment(now);
         if self.active_payment_id.is_some() {
             env::panic_str("another payment is still active");
         }
@@ -232,7 +281,6 @@ impl Tapproved {
             env::panic_str("recipient is not allowlisted");
         }
 
-        let now = env::block_timestamp();
         let expiry = now.checked_add(REQUEST_TTL_NS).unwrap_or_else(|| env::panic_str("expiry overflow"));
         let day = now / NANOS_PER_DAY;
         self.prune_daily_usage(day);
@@ -334,6 +382,19 @@ impl Tapproved {
         }
         self.active_payment_id = None;
         payment_to_view(&self.payments.get(&payment_id).unwrap())
+    }
+
+    fn expire_stale_active_payment(&mut self, now: u64) {
+        let Some(payment_id) = self.active_payment_id else { return; };
+        let payment = self.payments.get(&payment_id).cloned()
+            .unwrap_or_else(|| env::panic_str("active payment not found"));
+        let is_expirable = payment.status == PaymentStatus::Pending || payment.status == PaymentStatus::Approved;
+        if is_expirable && now > payment.expires_at_ns {
+            self.release_reservation(&payment);
+            self.store_payment(Payment { status: PaymentStatus::Expired, ..payment.clone() });
+            emit_payment_event("payment_expired", &payment, None);
+            self.active_payment_id = None;
+        }
     }
 
     fn active_payment(&self, payment_id: u64) -> Payment {
@@ -455,6 +516,22 @@ impl Tapproved {
         self.active_payment_id.and_then(|id| self.get_payment(id))
     }
 
+    /// Report current storage staking requirements and balance headroom.
+    pub fn get_storage_metrics(&self) -> StorageMetricsView {
+        let storage_usage = env::storage_usage();
+        let byte_cost = env::storage_byte_cost().as_yoctonear();
+        let required = (storage_usage as u128).checked_mul(byte_cost)
+            .unwrap_or_else(|| env::panic_str("required storage balance overflow"));
+        let balance = env::account_balance().as_yoctonear();
+        StorageMetricsView {
+            storage_usage_bytes: U64(storage_usage),
+            storage_byte_cost_yocto: U128(byte_cost),
+            required_storage_balance_yocto: U128(required),
+            account_balance_yocto: U128(balance),
+            available_balance_yocto: U128(balance.saturating_sub(required)),
+        }
+    }
+
     pub fn get_daily_usage(&self, utc_day: u64) -> DailyUsageView {
         let usage = self.daily_usage.get(&utc_day);
         let spent = usage.map(|entry| entry.spent_yocto).unwrap_or(0);
@@ -475,6 +552,15 @@ impl Tapproved {
 }
 
 fn emit_payment_event(event: &str, payment: &Payment, approval_method: Option<&str>) {
+    let resulting_status = match event {
+        "payment_requested" => payment.status,
+        "payment_approved" => PaymentStatus::Approved,
+        "payment_paid" => PaymentStatus::Paid,
+        "payment_failed" => PaymentStatus::Failed,
+        "payment_cancelled" => PaymentStatus::Cancelled,
+        "payment_expired" => PaymentStatus::Expired,
+        _ => env::panic_str("unsupported Tapproved payment event"),
+    };
     let mut data = near_sdk::serde_json::json!({
         "payment_id": U64(payment.id),
         "agent_id": &payment.agent_id,
@@ -483,15 +569,45 @@ fn emit_payment_event(event: &str, payment: &Payment, approval_method: Option<&s
         "nonce": U64(payment.nonce),
         "created_at_ns": U64(payment.created_at_ns),
         "expires_at_ns": U64(payment.expires_at_ns),
+        "event_timestamp_ns": U64(env::block_timestamp()),
+        "status": resulting_status,
+        "hardware_approved": approval_method == Some("hardware") || payment.hardware_approved,
     });
     if let Some(method) = approval_method {
         data["approval_method"] = near_sdk::serde_json::Value::String(method.to_string());
     }
     let payload = near_sdk::serde_json::json!({
         "standard": "tapproved",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "event": event,
         "data": [data],
+    });
+    env::log_str(&format!("EVENT_JSON:{}", payload));
+}
+
+fn emit_policy_limits_updated(
+    owner_id: &AccountId,
+    previous: (u128, u128, u128),
+    current: (u128, u128, u128),
+) {
+    let payload = near_sdk::serde_json::json!({
+        "standard": "tapproved",
+        "version": "1.1.0",
+        "event": "policy_limits_updated",
+        "data": [{
+            "owner_id": owner_id,
+            "previous": {
+                "soft_limit_yocto": U128(previous.0),
+                "hard_limit_yocto": U128(previous.1),
+                "daily_limit_yocto": U128(previous.2),
+            },
+            "current": {
+                "soft_limit_yocto": U128(current.0),
+                "hard_limit_yocto": U128(current.1),
+                "daily_limit_yocto": U128(current.2),
+            },
+            "event_timestamp_ns": U64(env::block_timestamp()),
+        }],
     });
     env::log_str(&format!("EVENT_JSON:{}", payload));
 }
@@ -543,6 +659,7 @@ fn validate_policy(
     if hard_limit_yocto == 0 || soft_limit_yocto > hard_limit_yocto { return Err("limits must satisfy 0 < soft_limit_yocto <= hard_limit_yocto"); }
     if daily_limit_yocto < hard_limit_yocto { return Err("daily_limit_yocto must be at least hard_limit_yocto"); }
     if allowed_recipients.is_empty() { return Err("allowed_recipients must contain at least one account"); }
+    if allowed_recipients.len() > MAX_ALLOWED_RECIPIENTS { return Err("allowed_recipients exceeds maximum size of 100"); }
     if network_id != "testnet" { return Err("network_id must be testnet; mainnet is not supported"); }
     Ok(())
 }
@@ -598,6 +715,32 @@ mod tests {
         let mut c = admin_contract("owner.testnet"); set_predecessor("agent.testnet");
         let p = c.request_spend(account("merchant.testnet"), U128(50));
         set_predecessor("attacker.testnet"); c.cancel_payment(p.id.0);
+    }
+
+    #[test]
+    fn owner_can_update_spending_limits_atomically() {
+        let mut c = admin_contract("owner.testnet");
+        c.update_spending_limits(U128(20), U128(80), U128(200));
+        assert_eq!(c.soft_limit_yocto, 20);
+        assert_eq!(c.hard_limit_yocto, 80);
+        assert_eq!(c.daily_limit_yocto, 200);
+    }
+
+    #[test]
+    #[should_panic(expected = "only the owner may call this method")]
+    fn non_owner_cannot_update_spending_limits() {
+        let mut c = admin_contract("owner.testnet");
+        set_predecessor("attacker.testnet");
+        c.update_spending_limits(U128(20), U128(80), U128(200));
+    }
+
+    #[test]
+    #[should_panic(expected = "daily limit cannot be lower than retained daily usage")]
+    fn spending_limit_update_cannot_underfund_retained_usage() {
+        let mut c = admin_contract("owner.testnet");
+        c.daily_usage.insert(0, DailyUsage { utc_day: 0, spent_yocto: 900, reserved_yocto: 0 });
+        c.retained_daily_days.push(0);
+        c.update_spending_limits(U128(20), U128(80), U128(800));
     }
 
     #[test]
@@ -746,6 +889,31 @@ mod tests {
         c.paused = true;
         context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
         c.request_spend(account("merchant.testnet"), U128(5));
+    }
+
+    #[test]
+    fn next_request_expires_stale_pending_payment_and_releases_its_reservation() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let old = c.request_spend(account("merchant.testnet"), U128(11));
+        context_at("agent.testnet", "tapproved.testnet", old.expires_at_ns.0 + 1);
+        let next = c.request_spend(account("merchant.testnet"), U128(5));
+        assert_eq!(c.get_payment(old.id.0).unwrap().status, PaymentStatus::Expired);
+        assert_eq!(next.id.0, old.id.0 + 1);
+        assert_eq!(c.active_payment_id, Some(next.id.0));
+        let usage = c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY);
+        assert_eq!(usage.reserved_yocto.0, 5);
+    }
+
+    #[test]
+    fn next_request_expires_stale_auto_approved_payment() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let old = c.request_spend(account("merchant.testnet"), U128(5));
+        context_at("agent.testnet", "tapproved.testnet", old.expires_at_ns.0 + 1);
+        let next = c.request_spend(account("merchant.testnet"), U128(6));
+        assert_eq!(c.get_payment(old.id.0).unwrap().status, PaymentStatus::Expired);
+        assert_eq!(next.status, PaymentStatus::Approved);
     }
 
     #[test]
@@ -1115,11 +1283,86 @@ mod tests {
         let line = logs[0].strip_prefix("EVENT_JSON:").expect("NEP-297 event prefix");
         let event: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(line).unwrap();
         assert_eq!(event["standard"], "tapproved");
-        assert_eq!(event["version"], "1.0.0");
+        assert_eq!(event["version"], "1.1.0");
         assert_eq!(event["event"], "payment_requested");
+        assert_eq!(event["data"][0]["status"], "pending");
+        assert_eq!(event["data"][0]["hardware_approved"], false);
+        assert_eq!(event["data"][0]["event_timestamp_ns"], "0");
         assert_eq!(event["data"][0]["payment_id"], "42");
         assert_eq!(event["data"][0]["amount_yocto"], "123456789012345678901234567890");
         assert_eq!(event["data"][0]["created_at_ns"], "1793519712345678901");
+    }
+
+    #[test]
+    fn payment_events_cover_all_lifecycle_outcomes_and_approval_methods() {
+        use near_sdk::test_utils::get_logs;
+        let payment = Payment {
+            id: 42, agent_id: account("agent.testnet"), recipient_id: account("merchant.testnet"),
+            amount_yocto: 123, nonce: 42, created_at_ns: 10, expires_at_ns: 20,
+            status: PaymentStatus::Pending, hardware_approved: false,
+        };
+        emit_payment_event("payment_requested", &payment, None);
+        emit_payment_event("payment_approved", &payment, Some("automatic"));
+        emit_payment_event("payment_approved", &payment, Some("hardware"));
+        emit_payment_event("payment_paid", &payment, None);
+        emit_payment_event("payment_failed", &payment, None);
+        emit_payment_event("payment_cancelled", &payment, None);
+        emit_payment_event("payment_expired", &payment, None);
+        let logs = get_logs();
+        assert_eq!(logs.len(), 7);
+        let expected = [
+            ("payment_requested", "pending", false),
+            ("payment_approved", "approved", false),
+            ("payment_approved", "approved", true),
+            ("payment_paid", "paid", false),
+            ("payment_failed", "failed", false),
+            ("payment_cancelled", "cancelled", false),
+            ("payment_expired", "expired", false),
+        ];
+        for (line, (name, status, hardware_approved)) in logs.iter().zip(expected) {
+            let json = line.strip_prefix("EVENT_JSON:").expect("NEP-297 event prefix");
+            let event: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(json).unwrap();
+            assert_eq!(event["standard"], "tapproved");
+            assert_eq!(event["version"], "1.1.0");
+            assert_eq!(event["event"], name);
+            assert_eq!(event["data"][0]["status"], status);
+            assert_eq!(event["data"][0]["hardware_approved"], hardware_approved);
+            assert!(event["data"][0]["event_timestamp_ns"].is_string());
+        }
+    }
+
+    #[test]
+    fn policy_limit_update_emits_auditable_nep297_event() {
+        use near_sdk::test_utils::get_logs;
+        let mut c = admin_contract("owner.testnet");
+        c.update_spending_limits(U128(20), U128(80), U128(200));
+        let logs = get_logs();
+        let event: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(
+            logs[0].strip_prefix("EVENT_JSON:").unwrap()
+        ).unwrap();
+        assert_eq!(event["standard"], "tapproved");
+        assert_eq!(event["version"], "1.1.0");
+        assert_eq!(event["event"], "policy_limits_updated");
+        assert_eq!(event["data"][0]["previous"]["daily_limit_yocto"], "1000");
+        assert_eq!(event["data"][0]["current"]["daily_limit_yocto"], "200");
+    }
+
+    #[test]
+    fn storage_metrics_report_balance_and_required_stake() {
+        use near_sdk::test_utils::VMContextBuilder;
+        use near_sdk::testing_env;
+        testing_env!(VMContextBuilder::new()
+            .current_account_id(account("tapproved.testnet"))
+            .predecessor_account_id(account("owner.testnet"))
+            .account_balance(NearToken::from_yoctonear(1_000_000))
+            .build());
+        let c = Tapproved::new(account("agent.testnet"), vec![7; 32], U128(10), U128(100), U128(1_000),
+            vec![account("merchant.testnet")], "testnet".to_string());
+        let metrics = c.get_storage_metrics();
+        assert!(metrics.required_storage_balance_yocto.0 > 0);
+        assert_eq!(metrics.account_balance_yocto.0, 1_000_000);
+        assert_eq!(metrics.available_balance_yocto.0,
+            1_000_000u128.saturating_sub(metrics.required_storage_balance_yocto.0));
     }
 
     #[test]
@@ -1145,6 +1388,24 @@ mod tests {
     #[test]
     fn rejects_empty_allowlist() {
         assert!(validate_policy(&[7; 32], 10, 100, 1_000, &[], "testnet").is_err());
+    }
+
+    #[test]
+    fn rejects_allowlist_above_maximum_size() {
+        let recipients = (0..=MAX_ALLOWED_RECIPIENTS)
+            .map(|index| account(&format!("merchant{index}.testnet")))
+            .collect::<Vec<_>>();
+        assert!(validate_policy(&[7; 32], 10, 100, 1_000, &recipients, "testnet").is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "recipient allowlist has reached its maximum size of 100")]
+    fn owner_cannot_grow_allowlist_beyond_maximum() {
+        let mut c = admin_contract("owner.testnet");
+        c.allowed_recipients = (0..MAX_ALLOWED_RECIPIENTS)
+            .map(|index| account(&format!("merchant{index}.testnet")))
+            .collect();
+        c.add_allowed_recipient(account("overflow.testnet"));
     }
     #[test]
     fn rejects_mainnet() {
