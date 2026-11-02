@@ -5,6 +5,7 @@
 #include <esp_system.h>
 #include <cstring>
 #include "amount_format.h"
+#include "button_approval.h"
 
 namespace {
 constexpr uint8_t APPROVAL_BUTTON_PIN = 25;
@@ -183,6 +184,19 @@ void printHex(const uint8_t* bytes, size_t length) {
   }
 }
 
+bool waitForFreshButtonPress(uint32_t timeout_ms) {
+  const uint32_t started = millis();
+  FreshPressDetector detector(50);
+  detector.begin(digitalRead(APPROVAL_BUTTON_PIN) == HIGH, started);
+  while (static_cast<uint32_t>(millis() - started) < timeout_ms) {
+    if (detector.update(digitalRead(APPROVAL_BUTTON_PIN) == HIGH, millis())) {
+      return true;
+    }
+    delay(5);
+  }
+  return false;
+}
+
 void handleRequest(const char* line) {
   JsonDocument doc;
   if (deserializeJson(doc, line)) {
@@ -214,20 +228,10 @@ void handleRequest(const char* line) {
   Serial.printf("Network:    %s\n", doc["network_id"].as<const char*>());
   Serial.printf("Expires at: %s ns\n", doc["expires_at_ns"].as<const char*>());
   Serial.println("USB serial output is host-controlled and is NOT a trusted display.");
-  Serial.println("Press and release the physical APPROVE button to sign.");
-  Serial.println("Wait 30 seconds to reject.");
+  Serial.println("If held, release the button first. Then make one fresh press and release to approve.");
+  Serial.println("A held button or contact bounce cannot approve. Wait 30 seconds to reject.");
 
-  const uint32_t started = millis();
-  bool pressed = false;
-  while (millis() - started < 30000) {
-    if (digitalRead(APPROVAL_BUTTON_PIN) == LOW) {
-      pressed = true;
-      while (digitalRead(APPROVAL_BUTTON_PIN) == LOW) delay(10);
-      break;
-    }
-    delay(10);
-  }
-  if (!pressed) {
+  if (!waitForFreshButtonPress(30000)) {
     Serial.printf("{\"frame_version\":1,\"request_id\":\"%s\",\"status\":\"rejected_or_timed_out\"}\n", request_id);
     return;
   }
