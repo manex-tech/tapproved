@@ -24,7 +24,7 @@ A compromised relay may delay, replay or misroute messages, but it must not be a
 1. An authenticated agent sends a payment intent with recipient, integer yoctoNEAR amount and an idempotency key.
 2. The relay validates syntax and bounds, resolves the key to a single logical request, and calls `request_spend` as the configured registered agent.
 3. The contract validates policy and creates the payment. The relay reads the resulting payment record from the contract; it does not invent nonce, payment ID or expiry.
-4. If the contract returns an automatically approved payment, the relay submits `execute_approved_spend` through the backend signer.
+4. If the contract returns an automatically approved payment, the relay submits `execute_approved_spend` through the backend signer and reads the contract payment record again. Pending payments are never auto-executed.
 5. If the payment is pending, the relay publishes the contract-derived payment context to the ESP32 over the serial bridge.
 6. The ESP32 validates contract ID, network ID, numeric encodings and expiry, presents recipient and amount, and waits for a physical button press. It returns the v1 Ed25519 signature and public key only after approval.
 7. The relay validates the signature locally as an early error check, then submits `approve_spend` with the payment ID and signature. The contract independently verifies the signature against its registered key and its own stored payment fields.
@@ -64,14 +64,14 @@ All amounts and potentially 64-bit values are decimal strings. Reject JSON numbe
 Canonical defaults are NEAR Testnet, `https://rpc.testnet.near.org`, and `manextech.testnet`. Production-like configuration must fail closed if the network or contract differs from the explicitly allowed deployment.
 
 - `AGENT_API_TOKEN`: high-entropy relay credential; store only a verifier/hash where feasible and compare safely.
-- `NEAR_SIGNER_ACCOUNT_ID` is fixed to `manex-agent.testnet`. `NEAR_SIGNER_PRIVATE_KEY` must be a dedicated Ed25519 FunctionCall access key on that account, scoped to receiver `manextech.testnet`, method list exactly `request_spend`, and a finite allowance no greater than 5 NEAR. The relay verifies this permission against the live access-key list at startup and refuses FullAccess or broader keys. Prefer an OS secret store or managed signer; never commit credentials. The key must be provisioned separately by the account owner; the relay never creates or broadens keys.
+- `NEAR_SIGNER_ACCOUNT_ID` is fixed to `manex-agent.testnet`. `NEAR_SIGNER_PRIVATE_KEY` must be a dedicated Ed25519 FunctionCall access key on that account, scoped to receiver `manextech.testnet`, method list exactly `request_spend` and `execute_approved_spend`, and a finite allowance no greater than 5 NEAR. The relay verifies this permission against the live access-key list at startup and refuses FullAccess or broader keys. Prefer an OS secret store or managed signer; never commit credentials. The key must be provisioned separately by the account owner; the relay never creates or broadens keys.
 - `SERIAL_PORT`, baud rate and frame limits: explicit device transport configuration.
 - Wi-Fi SSID/password belong on the ESP32 through a local provisioning path or ignored local secrets file, never in Git or firmware constants.
 - Keep `.env.example` placeholder-only. Do not log authorization headers, private keys, full signatures or Wi-Fi credentials.
 
 ## 6. Reliability and safety invariants
 
-- The contract is the sole authority for policy and settlement. The backend agent signer is restricted to the `request_spend` method on the canonical contract and cannot transfer NEAR from the agent account.
+- The contract is the sole authority for policy and settlement. The backend agent signer is restricted to the `request_spend` and `execute_approved_spend` methods on the canonical contract and cannot transfer NEAR from the agent account.
 - A request retry with the same idempotency key must not create a second logical payment.
 - A serial retry must not cause a second signature or a second contract approval.
 - A device signature is bound to contract, network, payment ID, recipient, amount, nonce and expiry by protocol v1.
