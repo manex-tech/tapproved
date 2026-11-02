@@ -206,9 +206,10 @@ test("pending-approvals endpoint returns only a contract-pending payment", async
     hardware_approved: false
   };
   let reads = 0;
+  let queryOptions;
   await withServer({
     ...authOptions(),
-    getActivePayment: async () => { reads += 1; return pendingPayment; }
+    getActivePayment: async (options) => { reads += 1; queryOptions = options; return pendingPayment; }
   }, async (base) => {
     const response = await fetch(`${base}/v1/pending-approvals`, {
       headers: { authorization: `Bearer ${token}` }
@@ -221,6 +222,7 @@ test("pending-approvals endpoint returns only a contract-pending payment", async
       payment: pendingPayment
     });
     assert.equal(reads, 1);
+    assert.deepEqual(queryOptions, { env: { NEAR_CONTRACT_ID: "manextech.testnet" } });
   });
 });
 
@@ -265,6 +267,20 @@ test("pending-approvals endpoint reports RPC failures without leaking details", 
   await withServer({
     ...authOptions(),
     getActivePayment: async () => { throw new Error("private RPC error details"); }
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/pending-approvals`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: "near_rpc_failed" });
+  });
+});
+
+
+test("pending-approvals endpoint rejects an unexpected contract agent", async () => {
+  await withServer({
+    ...authOptions(),
+    getActivePayment: async () => ({ id: "16", agent_id: "other.testnet", status: "pending" })
   }, async (base) => {
     const response = await fetch(`${base}/v1/pending-approvals`, {
       headers: { authorization: `Bearer ${token}` }
