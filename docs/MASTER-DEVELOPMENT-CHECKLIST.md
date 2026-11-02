@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last verified source revision:** `d809fabb183f72ab29520cede341da543e5c0e02` (2026-11-02)  
+**Last verified source revision:** `a3ffdc562fbdaec2df3b2d66f839583697de2016` (2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -22,7 +22,7 @@
 
 ## Current checkpoint
 
-**Active task: C9 transaction and payment status tracking.**
+**Active task: C10 payment expiry monitoring.**
 
 The disposable B10 lab firmware branch was merged as PR #26, but the lab account is no longer the target architecture. Development is consolidated around the canonical Testnet contract `manextech.testnet` and registered agent `manex-agent.testnet`. Do not initialize, deploy over, or transfer funds from the canonical contract during implementation. The existing deployed contract's storage-layout compatibility must be assessed before any final redeployment decision.
 
@@ -30,7 +30,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 
 **C1 completed:** [Relay architecture and trust boundaries](RELAY-ARCHITECTURE.md) defines the agent, relay, signer, contract, serial bridge and ESP32 boundaries; API contract; secret configuration; lifecycle and failure invariants. This is a design baseline, not a claim that these components are implemented.
 
-`main` is at `d809fabb183f72ab29520cede341da543e5c0e02`. PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable idempotency; PR #30 added the restricted NEAR agent signer; PR #31 added automatic execution; PR #33 added pending-approval and payment-status reads; PR #35 completed bounded ESP32 serial transport and firmware framing; PR #38 added the one-cycle hardware approval flow and separate `approve_spend`-only signer. Live approval remains disabled until the owner provisions `NEAR_APPROVAL_SIGNER_PRIVATE_KEY` on `manex-agent.testnet`.
+`main` is at `a3ffdc562fbdaec2df3b2d66f839583697de2016`. PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable idempotency; PR #30 added the restricted NEAR agent signer; PR #31 added automatic execution; PR #33 added pending-approval and payment-status reads; PR #35 completed bounded ESP32 serial transport and firmware framing; PR #38 added the one-cycle hardware approval flow and separate `approve_spend`-only signer; PR #40 added authenticated transaction and receipt status tracking. Live approval remains disabled until the owner provisions `NEAR_APPROVAL_SIGNER_PRIVATE_KEY` on `manex-agent.testnet`.
 
 ## Phase A: Repository consistency and documentation
 
@@ -73,7 +73,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 - [x] **C6.** Track pending hardware approvals. PR #33 exposes the contract-derived pending approval context and authenticated `GET /v1/payments/:paymentId` lifecycle lookup. Node integration tests cover pending, active and terminal states, authentication, foreign-agent records, invalid IDs and RPC failures.
 - [x] **C7.** Implement ESP32 serial communication. PR #35 adds bounded newline-delimited USB serial transport, one in-flight approval, timeout/disconnect handling, response-shape validation, and the ESP32 frame parser. CI run [41476447728](https://github.com/manex-tech/tapproved/actions/runs/41476447728) passed Node tests, Rust contract tests/Wasm build and ESP32 firmware build.
 - [x] **C8.** Submit hardware signatures to the contract. PR #38 adds an authenticated one-cycle processor, separate `approve_spend`-only FunctionCall signer, on-chain device-key matching, canonical v1 local Ed25519 verification, pre-submit pending-payment recheck, and post-submit status read. CI run [41479361939](https://github.com/manex-tech/tapproved/actions/runs/41479361939) passed Node, Rust contract/Wasm and ESP32 firmware jobs. **Operational dependency:** owner must provision the separate approval FunctionCall key before the endpoint can be enabled in a live relay.
-- [ ] **C9.** Track transaction and payment status.
+- [x] **C9.** Track transaction and payment status. PR #40 adds authenticated `GET /v1/transactions/:hash`, canonical signer/contract/method validation, explicit NEAR finality selection, receipt outcomes, gas/tokens burnt and logs. It omits raw transaction arguments/signatures and returns 202 until all receipts reach `FINAL`. CI run [41483795966](https://github.com/manex-tech/tapproved/actions/runs/41483795966) passed Node, Rust contract/Wasm and ESP32 firmware jobs.
 - [ ] **C10.** Monitor payment expiry.
 - [ ] **C11.** Handle interruption and failure recovery.
 - [ ] **C12.** Implement structured logs and error handling.
@@ -184,4 +184,7 @@ Update this section after each task with the date, commit/PR, tests run, evidenc
 | 2026-11-02 | C5 automatic execution | PR #31 merged; CI run [41469780643](https://github.com/manex-tech/tapproved/actions/runs/41469780643) passed Node, 75 Rust tests, Wasm build and ESP32 firmware. |
 | 2026-11-02 | C6 pending hardware-approval tracking | PR #33 merged as `59873cc671fa6c26a3b208b361d85c0635c5cd50`; CI run [41474877325](https://github.com/manex-tech/tapproved/actions/runs/41474877325) passed Node integration tests, Rust contract tests and Wasm build, and ESP32 firmware builds. Serial delivery remains C7. |
 
-| 2026-11-02 | C7 ESP32 serial transport | PR #35 merged as `2466bca54d171d6f33bc1114ac62f5d7b4a469c5`; CI run [41476684542](https://github.com/manex-tech/tapproved/actions/runs/41476684542) passed Node, Rust contract/Wasm and canonical ESP32 firmware jobs. Added bounded USB serial transport and fixed-size firmware input framing. |\n| 2026-11-02 | C8 hardware signature submission | PR #38 merged as `d809fabb183f72ab29520cede341da543e5c0e02`; CI run [41479361939](https://github.com/manex-tech/tapproved/actions/runs/41479361939) passed Node, Rust contract/Wasm and firmware jobs. Added a separate approval-only signer and authenticated one-cycle serial-to-contract flow. Live use awaits owner provisioning of the `approve_spend`-only FunctionCall key. |
+| 2026-11-02 | C7 ESP32 serial transport | PR #35 merged as `2466bca54d171d6f33bc1114ac62f5d7b4a469c5`; CI run [41476684542](https://github.com/manex-tech/tapproved/actions/runs/41476684542) passed Node, Rust contract/Wasm and canonical ESP32 firmware jobs. Added bounded USB serial transport and fixed-size firmware input framing. |
+| 2026-11-02 | C8 hardware signature submission | PR #38 merged as `d809fabb183f72ab29520cede341da543e5c0e02`; CI run [41479361939](https://github.com/manex-tech/tapproved/actions/runs/41479361939) passed Node, Rust contract/Wasm and firmware jobs. Added a separate approval-only signer and authenticated one-cycle serial-to-contract flow. Live use awaits owner provisioning of the `approve_spend`-only FunctionCall key. |
+
+| 2026-11-02 | C9 transaction and payment status | PR #40 merged as `a3ffdc562fbdaec2df3b2d66f839583697de2016`; CI run [41483795966](https://github.com/manex-tech/tapproved/actions/runs/41483795966) passed Node integration tests, Rust contract tests/Wasm build and canonical ESP32 firmware build. Added authenticated transaction finality and receipt status reads. |
