@@ -168,7 +168,8 @@ export function createRelayServer(options = {}) {
         return;
       }
       try {
-        const activePayment = await readActivePayment();
+        const activePayment = await readActivePayment({ env: { NEAR_CONTRACT_ID: DEFAULT_CONTRACT_ID } });
+        if (activePayment && activePayment.agent_id !== agentId) throw new Error("unexpected active payment agent");
         const pending = activePayment?.status === "pending" ? activePayment : null;
         send(response, 200, {
           network: "testnet",
