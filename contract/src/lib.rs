@@ -147,7 +147,8 @@ impl Tapproved {
             env::panic_str("only pending or approved payments can be cancelled");
         }
         self.release_reservation(&payment);
-        self.store_payment(Payment { status: PaymentStatus::Cancelled, ..payment });
+        self.store_payment(Payment { status: PaymentStatus::Cancelled, ..payment.clone() });
+        emit_payment_event("payment_cancelled", &payment, None);
         self.active_payment_id = None;
     }
 
@@ -255,7 +256,11 @@ impl Tapproved {
             hardware_approved: false,
         };
         let view = payment_to_view(&payment);
-        self.insert_payment(payment);
+        self.insert_payment(payment.clone());
+        emit_payment_event("payment_requested", &payment, None);
+        if status == PaymentStatus::Approved {
+            emit_payment_event("payment_approved", &payment, Some("automatic"));
+        }
         self.active_payment_id = Some(id);
         view
     }
@@ -270,6 +275,7 @@ impl Tapproved {
         let message = canonical_approval_message(&payment, &env::current_account_id(), &self.network_id);
         if !env::ed25519_verify(&sig, &message, &key) { env::panic_str("invalid hardware approval signature"); }
         self.store_payment(Payment { hardware_approved: true, status: PaymentStatus::Processing, ..payment.clone() });
+        emit_payment_event("payment_approved", &payment, Some("hardware"));
         self.transfer_promise(payment)
     }
 
@@ -289,10 +295,14 @@ impl Tapproved {
         let payment = self.active_payment(payment_id);
         if payment.status != PaymentStatus::Processing { env::panic_str("payment is not processing"); }
         match env::promise_result(0) {
-            PromiseResult::Successful(_) => self.store_payment(Payment { status: PaymentStatus::Paid, ..payment.clone() }),
+            PromiseResult::Successful(_) => {
+                self.store_payment(Payment { status: PaymentStatus::Paid, ..payment.clone() });
+                emit_payment_event("payment_paid", &payment, None);
+            }
             PromiseResult::Failed => {
                 self.release_reservation(&payment);
                 self.store_payment(Payment { status: PaymentStatus::Failed, ..payment.clone() });
+                emit_payment_event("payment_failed", &payment, None);
             }
         }
         self.active_payment_id = None;
@@ -349,7 +359,7 @@ impl Tapproved {
     /// original UTC-day bucket, not from the caller's current day.
     pub fn expire_payment(&mut self, payment_id: u64) {
         let now = env::block_timestamp();
-        let payment = self.payments.get(&payment_id).unwrap_or_else(|| env::panic_str("payment not found"));
+        let payment = self.payments.get(&payment_id).cloned().unwrap_or_else(|| env::panic_str("payment not found"));
         if self.active_payment_id != Some(payment_id) {
             env::panic_str("payment is not active");
         }
@@ -367,6 +377,7 @@ impl Tapproved {
             env::panic_str("daily reservation record missing");
         }
         self.store_payment(Payment { status: PaymentStatus::Expired, ..payment.clone() });
+        emit_payment_event("payment_expired", &payment, None);
         self.active_payment_id = None;
     }
 
@@ -383,6 +394,28 @@ impl Tapproved {
             .map(|entry| entry.reserved_yocto).unwrap_or(0);
         DailyUsageView { utc_day: U64(utc_day), reserved_yocto: U128(reserved), daily_limit_yocto: U128(self.daily_limit_yocto) }
     }
+}
+
+fn emit_payment_event(event: &str, payment: &Payment, approval_method: Option<&str>) {
+    let mut data = near_sdk::serde_json::json!({
+        "payment_id": U64(payment.id),
+        "agent_id": &payment.agent_id,
+        "recipient_id": &payment.recipient_id,
+        "amount_yocto": U128(payment.amount_yocto),
+        "nonce": U64(payment.nonce),
+        "created_at_ns": U64(payment.created_at_ns),
+        "expires_at_ns": U64(payment.expires_at_ns),
+    });
+    if let Some(method) = approval_method {
+        data["approval_method"] = near_sdk::serde_json::Value::String(method.to_string());
+    }
+    let payload = near_sdk::serde_json::json!({
+        "standard": "tapproved",
+        "version": "1.0.0",
+        "event": event,
+        "data": [data],
+    });
+    env::log_str(&format!("EVENT_JSON:{}", payload));
 }
 
 fn is_terminal(status: PaymentStatus) -> bool {
@@ -824,6 +857,33 @@ mod tests {
         assert_eq!(json["expires_at_ns"], "1793520012345678901");
         assert_eq!(json["id"], "42");
         assert_eq!(json["nonce"], "42");
+    }
+
+    #[test]
+    fn payment_events_use_nep297_envelope_and_string_safe_integers() {
+        use near_sdk::test_utils::get_logs;
+        let payment = Payment {
+            id: 42,
+            agent_id: account("agent.testnet"),
+            recipient_id: account("merchant.testnet"),
+            amount_yocto: 123456789012345678901234567890,
+            nonce: 42,
+            created_at_ns: 1_793_519_712_345_678_901,
+            expires_at_ns: 1_793_520_012_345_678_901,
+            status: PaymentStatus::Pending,
+            hardware_approved: false,
+        };
+        emit_payment_event("payment_requested", &payment, None);
+        let logs = get_logs();
+        assert_eq!(logs.len(), 1);
+        let line = logs[0].strip_prefix("EVENT_JSON:").expect("NEP-297 event prefix");
+        let event: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(line).unwrap();
+        assert_eq!(event["standard"], "tapproved");
+        assert_eq!(event["version"], "1.0.0");
+        assert_eq!(event["event"], "payment_requested");
+        assert_eq!(event["data"][0]["payment_id"], "42");
+        assert_eq!(event["data"][0]["amount_yocto"], "123456789012345678901234567890");
+        assert_eq!(event["data"][0]["created_at_ns"], "1793519712345678901");
     }
 
     #[test]
