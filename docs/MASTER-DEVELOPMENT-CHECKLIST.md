@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last inspected implementation revision:** `78affc5526d7777619113481010d476536810223` (D2 canonical configuration merge, 2026-11-02)  
+**Last inspected implementation revision:** `a9f4dbb05cb4b937ac1a8d6d1066a739eadec01a` (D3 serial protocol merge, 2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -22,9 +22,9 @@
 
 ## Current checkpoint
 
-**Active task: D3 define reliable hardware communication framing and protocol.**
+**Active task: D4 receive and validate payment requests.**
 
-**D1 completed:** Source-level firmware, contract, protocol v1 and relay audit recorded in [FIRMWARE-PROTOCOL-AUDIT.md](FIRMWARE-PROTOCOL-AUDIT.md). PR [#45](https://github.com/manex-tech/tapproved/pull/45) merged as `c94d6440144e766d9fd1367973fb90944b43d164`. CI run [41505991730](https://github.com/manex-tech/tapproved/actions/runs/41505991730) passed firmware, Node and contract jobs. D1 identified nine findings and allocated implementation follow-through to D4–D12; the audit itself did not change firmware or contract behavior. D2 completed in PR [#46](https://github.com/manex-tech/tapproved/pull/46), merged as `78affc5526d7777619113481010d476536810223`. CI run [41508750251](https://github.com/manex-tech/tapproved/actions/runs/41508750251) passed Node tests, Rust contract tests/Wasm build and ESP32 firmware build. Relay RPC configuration now rejects noncanonical network, contract and signer IDs; firmware contract ID is no longer build-flag overridable. No device was flashed and no chain interaction occurred.
+**D1 completed:** Source-level firmware, contract, protocol v1 and relay audit recorded in [FIRMWARE-PROTOCOL-AUDIT.md](FIRMWARE-PROTOCOL-AUDIT.md). PR [#45](https://github.com/manex-tech/tapproved/pull/45) merged as `c94d6440144e766d9fd1367973fb90944b43d164`. CI run [41505991730](https://github.com/manex-tech/tapproved/actions/runs/41505991730) passed firmware, Node and contract jobs. D1 identified nine findings and allocated implementation follow-through to D4–D12; the audit itself did not change firmware or contract behavior. D2 completed in PR [#46](https://github.com/manex-tech/tapproved/pull/46), merged as `78affc5526d7777619113481010d476536810223`. CI run [41508750251](https://github.com/manex-tech/tapproved/actions/runs/41508750251) passed Node tests, Rust contract tests/Wasm build and ESP32 firmware build. Relay RPC configuration now rejects noncanonical network, contract and signer IDs; firmware contract ID is no longer build-flag overridable. No device was flashed and no chain interaction occurred. D3 completed in PR [#47](https://github.com/manex-tech/tapproved/pull/47), merged as `a9f4dbb05cb4b937ac1a8d6d1066a739eadec01a`. CI run [41509575465](https://github.com/manex-tech/tapproved/actions/runs/41509575465) passed Node tests, Rust contract tests/Wasm build and ESP32 firmware build. The serial envelope now carries `frame_version: 1` and a per-attempt UUID v4 request ID; firmware echoes it and relay rejects stale responses. Hardware-level serial validation remains outstanding.
 
 The disposable B10 lab firmware branch was merged as PR #26, but the lab account is no longer the target architecture. Development is consolidated around the canonical Testnet contract `manextech.testnet` and registered agent `manex-agent.testnet`. Do not initialize, deploy over, or transfer funds from the canonical contract during implementation. The existing deployed contract's storage-layout compatibility must be assessed before any final redeployment decision.
 
@@ -92,7 +92,7 @@ C12 is complete and merged in [PR #43](https://github.com/manex-tech/tapproved/p
 
 - [x] **D1.** Audit the firmware against the contract and approval protocol. PR #45 merged as `c94d6440144e766d9fd1367973fb90944b43d164`; CI run [41505991730](https://github.com/manex-tech/tapproved/actions/runs/41505991730) passed all three jobs. Findings and follow-through allocation are documented in [FIRMWARE-PROTOCOL-AUDIT.md](FIRMWARE-PROTOCOL-AUDIT.md).
 - [x] **D2.** Verify canonical contract/network configuration. PR #46 merged as `78affc5526d7777619113481010d476536810223`; CI run [41508750251](https://github.com/manex-tech/tapproved/actions/runs/41508750251) passed all three jobs. Relay RPC now enforces `testnet`, `manextech.testnet` and `manex-agent.testnet`; firmware contract/network constants are fixed in source with no contract build-flag override.
-- [ ] **D3.** Define reliable hardware communication framing and protocol.
+- [x] **D3.** Define reliable hardware communication framing and protocol. PR #47 merged as `a9f4dbb05cb4b937ac1a8d6d1066a739eadec01a`; CI run [41509575465](https://github.com/manex-tech/tapproved/actions/runs/41509575465) passed all three jobs. Added a versioned serial envelope, per-attempt UUID correlation, matching firmware responses, stale-response suppression and protocol documentation. Physical ESP32 serial testing remains outstanding.
 - [ ] **D4.** Receive and validate payment requests.
 - [ ] **D5.** Present amount, recipient and payment ID clearly before approval.
 - [ ] **D6.** Require intentional physical approval through GPIO25.
@@ -184,6 +184,7 @@ Update this section after each task with the date, commit/PR, tests run, evidenc
 
 | Date | Task | Result / evidence |
 |---|---|---|
+| 2026-11-02 | D3 reliable serial framing/protocol | PR #47 merged as `a9f4dbb05cb4b937ac1a8d6d1066a739eadec01a`; CI run [41509575465](https://github.com/manex-tech/tapproved/actions/runs/41509575465) passed Node, contract/Wasm and firmware jobs. Added versioned request/response envelope and stale-response correlation tests; hardware test pending. |
 | 2026-11-02 | D2 canonical contract/network configuration | PR #46 merged as `78affc5526d7777619113481010d476536810223`; CI run [41508750251](https://github.com/manex-tech/tapproved/actions/runs/41508750251) passed Node, contract/Wasm and firmware jobs. Relay RPC and firmware now enforce the canonical testnet configuration. |
 | 2026-11-02 | D1 firmware/protocol audit | PR #45 merged as `c94d6440144e766d9fd1367973fb90944b43d164`; CI run [41505991730](https://github.com/manex-tech/tapproved/actions/runs/41505991730) passed firmware, Node and contract jobs. Nine findings recorded with follow-through tasks. |
 | 2026-11-02 | B10 implementation and B12 CI verification | PR #24 merged as `67884ca12b799a029d52f60e445600916dd29cce`; CI run [41430358558](https://github.com/manex-tech/tapproved/actions/runs/41430358558), 75 Rust tests passed; empirical Testnet callback-gas measurement deferred to final deployment validation. |
