@@ -30,7 +30,8 @@ The contract is the policy authority. The relay authenticates agent requests, pe
 | NEAR contract policy and spend lifecycle | Implemented; Rust tests and Wasm build in CI |
 | Hardware Ed25519 verification and transfer callback | Implemented |
 | Testnet deployment | User-confirmed deployed and tested using NEAR CLI; see [deployment status](docs/TESTNET-DEPLOYMENT.md) |
-| ESP32 approval firmware | Implemented prototype; PlatformIO build in CI |
+| ESP32 approval firmware | Implemented prototype; PlatformIO build in CI; D1 source audit completed with nine findings allocated to Phase D follow-through |
+| Firmware/protocol audit | [D1 audit report](docs/FIRMWARE-PROTOCOL-AUDIT.md); findings are not yet fixes |
 | Approval protocol v1 | Documented with deterministic fixture |
 | Relay | Authenticated payment, approval, transaction and recovery APIs; durable request/operation journal; separate least-privilege request, approval and expiry signers; bounded ESP32 serial bridge; transaction receipt polling; finalized-chain-time expiry and restart-recovery monitors; HTTP-level integration coverage for payment, hardware approval, idempotency and recovery flows |
 | Local simulator | Implemented; uses an ephemeral key not registered on-chain |
@@ -138,6 +139,7 @@ CI runs Node syntax/tests, Rust contract tests plus a release Wasm build, and an
 - [Testnet deployment status](docs/TESTNET-DEPLOYMENT.md)
 - [Hardware approval milestone](docs/TESTNET-HARDWARE-APPROVAL-MILESTONE.md)
 - [Approval protocol v1](docs/APPROVAL-PROTOCOL.md)
+- [Firmware and protocol audit](docs/FIRMWARE-PROTOCOL-AUDIT.md)
 - [Local simulator](docs/SIMULATOR.md)
 
 ## License
