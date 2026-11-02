@@ -110,6 +110,10 @@ function isTransactionHash(value) {
   return decodedBytes + leadingZeroBytes === 32;
 }
 
+export function isValidTransactionHash(value) {
+  return isTransactionHash(value);
+}
+
 export async function getTransactionStatus(transactionHash, options = {}) {
   if (!isTransactionHash(transactionHash)) {
     throw new TransactionQueryValidationError("invalid_transaction_hash", "transaction hash must be a base58-encoded 32-byte hash");
