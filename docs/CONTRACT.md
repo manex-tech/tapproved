@@ -15,9 +15,9 @@ The one-time `new` initializer stores:
 - UTC daily spending limit
 - non-empty recipient allowlist
 
-Policy validation rejects invalid key length, invalid limit relationships, an empty recipient allowlist and unsupported network configuration. Amounts are yoctoNEAR and exposed through JSON `U128` wrappers.
+Policy validation rejects invalid key length, invalid limit relationships, an empty recipient allowlist, an allowlist larger than 100 accounts and unsupported network configuration. Amounts are yoctoNEAR and exposed through JSON `U128` wrappers.
 
-The current contract does not expose owner methods to change the three spending limits or network identifier after initialization.
+The owner can atomically update soft, hard and daily limits through `update_spending_limits`. The complete new policy is validated before any value is changed. A lower daily limit is rejected if it would fall below any retained day's committed spend plus outstanding reservations. The network identifier remains fixed.
 
 ## Request authorization
 
@@ -25,7 +25,7 @@ Only the registered agent may call `request_spend`. The contract rejects request
 
 The amount is reserved against its creation UTC day at request time. The daily limit is enforced against committed spend plus outstanding reservations. A request at or below the soft limit enters `approved`; a request above the soft limit and at or below the hard limit enters `pending`. Each payment receives a sequential ID, which is also used as its nonce, and expires five minutes after creation.
 
-Only one payment may be active at a time. This deliberately simple model limits throughput.
+Only one payment may be active at a time. This deliberately simple model limits throughput. When a new otherwise-valid request arrives, an expired active `pending` or `approved` payment is automatically expired and its original-day reservation is released before the new request proceeds. An active `processing` payment is never auto-expired. The contract does not deduplicate a logical agent request after an earlier payment reaches a terminal state; the future agent/relay API must provide request idempotency keys so transport retries do not create a second payment.
 
 ## Execution and settlement
 
@@ -39,10 +39,15 @@ A caller submits `approve_spend(payment_id, signature)` for the active `pending`
 
 The relay or caller cannot substitute recipient, amount, nonce or expiry in the message accepted by the contract: those fields are reconstructed from contract state. See [APPROVAL-PROTOCOL.md](APPROVAL-PROTOCOL.md).
 
-### Callback
+### Callback and recovery
 
-The private callback records `paid` when the transfer promise succeeds. On failure it records `failed` and releases the original daily reservation. In either case it clears the active payment.
+The private callback records `paid` when the transfer promise succeeds. On failure it records `failed` and releases the original daily reservation. In either case it clears the active payment. The callback receives a fixed 30 TGas allocation. A contract unit test measures callback execution against this budget, but this is not a substitute for empirical testnet receipt-gas validation.
 
+If the callback receipt itself fails, the payment can remain in `processing` with its reservation locked and the active-payment gate engaged. There is no trustless way for the contract to query the outcome of an earlier transfer receipt after its callback has failed. The owner-only `reconcile_processing_payment(payment_id, transfer_succeeded)` method provides an explicit recovery path. It can settle the reservation as `paid` or release it as `failed`, but the boolean is an owner attestation, not an on-chain proof.
+
+**Mandatory reconciliation procedure:** do not call this method merely because time has elapsed or because the callback is missing. Independently inspect the final NEAR transfer receipt and the callback receipt using a trusted RPC/explorer. Invoke reconciliation only after the transfer outcome is final and the callback receipt is confirmed failed. If the transfer succeeded, pass `true`; if the transfer failed, pass `false`. If the outcome is ambiguous, leave the payment in `processing` and keep the reservation locked. A mistaken owner attestation can cause accounting inconsistency or duplicate-payment risk. This is an operational trust boundary and must be disclosed to treasury operators.
+
+The 30 TGas allocation is a conservative increase over the previous 10 TGas allocation. The callback's simulated unit-test gas use is checked against the budget. **Empirical testnet gas validation remains outstanding** and must be completed against a deployed build before production use.
 On success, the amount moves from `reserved_yocto` to `spent_yocto`; the combined total remains charged against that original UTC day's limit. Failed, expired and cancelled payments release the reservation without increasing spent usage.
 
 ## Expiry, cancellation and pause
@@ -50,11 +55,11 @@ On success, the amount moves from `reserved_yocto` to `spent_yocto`; the combine
 - `expire_payment` is permissionless after the payment's expiry timestamp. It changes an active `pending` or `approved` payment to `expired`, releases its reservation from the original UTC-day bucket and clears the active payment.
 - `cancel_payment` is owner-only and can cancel an active `pending` or `approved` payment. It releases the reservation and clears the active payment.
 - `pause` and `unpause` are owner-only and control whether new spend requests can be created. They do not cancel an existing payment or prevent settlement of an already authorized payment.
-- There is no automated expiry keeper in the current repository. Until expiry is called or the payment is otherwise settled/cancelled, it can block new requests.
+- `expire_payment` remains permissionless for external cleanup, but a subsequent valid `request_spend` also expires a stale active `pending` or `approved` payment atomically. A stale `processing` payment is not expired. It remains blocked until the owner reconciles it after independently verifying the final transfer and callback receipts.
 
 ## Owner controls
 
-The owner can pause/unpause spending, cancel an eligible active payment, rotate the device public key, replace the registered agent, and add/remove allowlisted recipients. The allowlist cannot be made empty. There is no owner method to alter soft, hard or daily limits.
+The owner can pause/unpause spending, cancel an eligible active payment, rotate the device public key, replace the registered agent, atomically update spending limits, and add/remove allowlisted recipients. The allowlist must contain 1–100 accounts.
 
 ## Payment history and storage
 
@@ -72,7 +77,7 @@ The current persistent state layout is not compatible with earlier contract layo
 
 `pending` or `approved` → `expired` or `cancelled`
 
-`processing` is not eligible for expiry or owner cancellation. Failed, expired and cancelled payments release their reservations. Paid payments move the amount from reserved usage into spent usage, preserving the same daily-cap consumption.
+`processing` is not eligible for expiry or cancellation. If its callback receipt fails, the owner can reconcile it only after independently verifying the final transfer outcome. Failed, expired and cancelled payments release their reservations. Paid payments move the amount from reserved usage into spent usage, preserving the same daily-cap consumption.
 
 ## Events and views
 
@@ -84,6 +89,10 @@ Read methods include:
 - `get_payment(payment_id)`
 - `get_active_payment()`
 - `get_daily_usage(utc_day)` returns separate spent and reserved values, total used, remaining capacity and the configured daily limit. Historical records are retained for 90 UTC days.
+
+The contract emits NEP-297-style `EVENT_JSON` envelopes under standard `tapproved`, event schema version `1.1.0`. Payment events include payment ID, agent, recipient, yocto amount, nonce, creation/expiry timestamps, event timestamp, resulting status and hardware-approval flag. `payment_approved` distinguishes `automatic` and `hardware`; hardware approval reports the resulting `processing` state because transfer execution begins in the same receipt. Terminal event names and status fields identify `paid`, `failed`, `expired` and `cancelled`. `policy_limits_updated` records the owner and previous/current limits. `payment_reconciled` records owner-directed recovery and the final status. All u64/u128 event values are serialized as decimal strings.
+
+Read methods also include `get_storage_metrics()`, which reports storage usage, current byte cost, required storage stake, account balance and estimated balance headroom. This is an observability view, not a substitute for maintaining sufficient treasury balance.
 
 The JSON views wrap u64 and u128 values using NEAR SDK `U64` and `U128` types to preserve integer precision for JavaScript clients.
 
