@@ -1,8 +1,9 @@
 const DEFAULT_RPC_URL = "https://rpc.testnet.near.org";
+const DEFAULT_CONTRACT_ID = "manextech.testnet";
 
 function configuration(env = process.env) {
   const rpcUrl = env.NEAR_RPC_URL || DEFAULT_RPC_URL;
-  const contractId = env.NEAR_CONTRACT_ID || "tapproved.testnet";
+  const contractId = env.NEAR_CONTRACT_ID || DEFAULT_CONTRACT_ID;
   if (!rpcUrl.startsWith("https://")) throw new Error("NEAR_RPC_URL must use HTTPS");
   if (!/^[a-z0-9._-]+$/.test(contractId) || !contractId.endsWith(".testnet")) {
     throw new Error("NEAR_CONTRACT_ID must be a valid testnet account ID");
@@ -48,4 +49,4 @@ export async function getActivePayment(options) {
   return callViewMethod("get_active_payment", {}, options);
 }
 
-export { DEFAULT_RPC_URL };
+export { DEFAULT_RPC_URL, DEFAULT_CONTRACT_ID };
