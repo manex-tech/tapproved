@@ -17,7 +17,7 @@ This repository is under active development for the NEAR Hackathon. It is not au
 2. The contract checks that spending is not paused, no other payment is active, the recipient is allowlisted, the amount is positive and within the hard per-payment limit, and the UTC-day reservation remains within the daily limit.
 3. Amounts at or below the soft limit become `approved`. Larger amounts become `pending`.
 4. An automatically approved payment can be executed with `execute_approved_spend`. A pending payment requires the ESP32 to sign the canonical approval message after a physical GPIO25 press; the signature is submitted to `approve_spend`.
-5. The contract transfers NEAR from its own account and a private callback records `paid` or `failed`. Expiry and owner cancellation release reservations.
+5. The contract transfers NEAR from its own account and a private callback records `paid` or `failed`. Expired pending/approved payments are also cleaned up when the next valid request arrives; owner cancellation releases eligible reservations.
 
 The contract is the policy authority. The relay is currently read-only and does not yet orchestrate this complete flow.
 
@@ -93,11 +93,11 @@ CI runs Node syntax/tests, Rust contract tests plus a release Wasm build, and an
 
 - The contract account is the treasury: transfers are made from the contract's NEAR balance, not from the agent's own wallet.
 - Only one payment may be active at a time.
-- Payment requests expire after five minutes. Expiry is permissionless but requires someone to call `expire_payment`; there is no automated expiry keeper yet.
+- Payment requests expire after five minutes. `expire_payment` is permissionless, and a subsequent valid request automatically expires a stale pending/approved payment. Processing payments cannot be auto-expired.
 - Payment history is capped at 1,000 retained records. The oldest terminal records are pruned when a new record is inserted at capacity.
 - Daily usage is keyed by UTC day and retains at most 90 day records. The view separates committed spend from outstanding reservations and reports used and remaining capacity; the daily limit applies to spent plus reserved.
 - Successful settlement moves the amount from reserved to spent. Failed, expired and cancelled payments release the reservation. Older daily records are pruned on a new request, but records with outstanding reservations are never discarded.
-- Spending limits are initialized at deployment; there are currently no owner methods to change the soft, hard or daily limits.
+- The owner can atomically update soft, hard and daily limits; reductions below any retained day's spent-plus-reserved usage are rejected. The recipient allowlist is capped at 100 accounts.
 - Firmware stores the Ed25519 seed in ordinary ESP32 NVS. Secure boot, flash encryption, debug-port hardening, authenticated device transport and a trusted display are not configured.
 - Serial output is not a trusted display. A compromised host or relay could misrepresent the payment details shown to the operator.
 - The hardware milestone used the contract account as recipient. External-recipient settlement and broader end-to-end automation still need explicit testing.
