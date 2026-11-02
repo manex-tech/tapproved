@@ -32,6 +32,7 @@ function transactionStatusResponse(result) {
   const transactionOutcome = result.transaction_outcome?.outcome;
   return {
     transaction_hash: result.transaction.hash,
+    contract_id: DEFAULT_CONTRACT_ID,
     signer_id: result.transaction.signer_id,
     receiver_id: result.transaction.receiver_id,
     method_names: Array.isArray(result.transaction.actions)
@@ -296,7 +297,8 @@ export function createRelayServer(options = {}) {
         } else if (error instanceof TransactionWaitTimeoutError) {
           send(response, 202, {
             transaction_hash: transactionMatch[1],
-            final_execution_status: waitUntil,
+            final_execution_status: "UNKNOWN",
+            requested_wait_until: waitUntil,
             execution_state: "in_progress",
             receipts: [],
             receipt_count: 0,
