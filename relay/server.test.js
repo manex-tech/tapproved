@@ -478,3 +478,73 @@ test("payment status endpoint rejects an unknown contract lifecycle status", asy
     assert.deepEqual(await response.json(), { error: "near_rpc_failed" });
   });
 });
+
+
+test("hardware approval processing requires authentication before starting the device", async () => {
+  let calls = 0;
+  await withServer({
+    ...authOptions(),
+    processHardwareApproval: async () => { calls += 1; return { state: "submitted" }; }
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/approvals/process`, { method: "POST" });
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { error: "unauthorized" });
+    assert.equal(calls, 0);
+  });
+});
+
+test("hardware approval processing invokes the configured single-cycle processor", async () => {
+  let calls = 0;
+  await withServer({
+    ...authOptions(),
+    processHardwareApproval: async () => {
+      calls += 1;
+      return {
+        state: "submitted",
+        payment_id: "45",
+        transaction_hash: "approval-transaction",
+        payment: { id: "45", status: "processing" }
+      };
+    }
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/approvals/process`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      state: "submitted",
+      payment_id: "45",
+      transaction_hash: "approval-transaction",
+      payment: { id: "45", status: "processing" }
+    });
+    assert.equal(calls, 1);
+  });
+});
+
+test("hardware approval processing fails closed when not configured and hides internal errors", async () => {
+  await withServer(authOptions(), async (base) => {
+    const response = await fetch(`${base}/v1/approvals/process`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "hardware_approval_not_configured" });
+  });
+
+  await withServer({
+    ...authOptions(),
+    processHardwareApproval: async () => {
+      const error = new Error("secret RPC response");
+      error.code = "approval_submission_outcome_unknown";
+      throw error;
+    }
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/approvals/process`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: "approval_submission_outcome_unknown" });
+  });
+});
