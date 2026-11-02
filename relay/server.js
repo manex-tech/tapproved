@@ -200,7 +200,7 @@ export function createRelayServer(options = {}) {
     }
 
     const hardwareApprovalMatch = request.method === "POST"
-      ? pathname.match(/^\\/v1\\/payments\\/([0-9]+)\\/approve$/)
+      ? pathname.match(/^\/v1\/payments\/([0-9]+)\/approve$/)
       : null;
     if (hardwareApprovalMatch) {
       if (!authenticate(request)) {
