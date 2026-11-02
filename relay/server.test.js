@@ -548,3 +548,62 @@ test("hardware approval processing fails closed when not configured and hides in
     assert.deepEqual(await response.json(), { error: "approval_submission_outcome_unknown" });
   });
 });
+
+
+test("recovery reconciliation requires authentication before reading or repairing the journal", async () => {
+  let calls = 0;
+  await withServer({
+    ...authOptions(),
+    reconcileRecovery: async () => { calls += 1; return { state: "reconciled" }; }
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/recovery/reconcile`, { method: "POST" });
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { error: "unauthorized" });
+    assert.equal(calls, 0);
+  });
+});
+
+test("authenticated recovery route invokes contract-state reconciliation without accepting caller context", async () => {
+  let calls = 0;
+  await withServer({
+    ...authOptions(),
+    reconcileRecovery: async () => {
+      calls += 1;
+      return {
+        state: "manual_review_required",
+        request_recovery: "no_active_payment_manual_review",
+        reconciled_payment_requests: 0,
+        unresolved_payment_requests: 1,
+        confirmed_operations: 0,
+        unresolved_operations: 0
+      };
+    }
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/recovery/reconcile`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({ payment_id: "999", recipient_id: "attacker.testnet" })
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      state: "manual_review_required",
+      request_recovery: "no_active_payment_manual_review",
+      reconciled_payment_requests: 0,
+      unresolved_payment_requests: 1,
+      confirmed_operations: 0,
+      unresolved_operations: 0
+    });
+    assert.equal(calls, 1);
+  });
+});
+
+test("recovery route fails closed when reconciliation is not configured", async () => {
+  await withServer(authOptions(), async (base) => {
+    const response = await fetch(`${base}/v1/recovery/reconcile`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "recovery_not_configured" });
+  });
+});

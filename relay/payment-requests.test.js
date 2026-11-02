@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -144,5 +144,65 @@ test("corrupt journal fails closed instead of allowing a fresh reservation", asy
       /corrupt/
     );
     assert.equal((await readFile(path, "utf8")), "{broken");
+  });
+});
+
+
+test("migrates v1 journal and durably suppresses duplicate approval and expiry operations", async () => {
+  await withStore(async (path) => {
+    await writeFile(path, JSON.stringify({ version: 1, records: [] }), "utf8");
+    const first = new JsonIdempotencyStore(path);
+    const approval = await first.beginOperation(agentId, "71", "approval");
+    assert.equal(approval.created, true);
+    await first.markOperationUncertain(agentId, "71", "approval");
+    const expiry = await first.beginOperation(agentId, "72", "expiry");
+    assert.equal(expiry.created, true);
+    await first.completeOperation(agentId, "72", "expiry", "expiry-hash");
+
+    const restarted = new JsonIdempotencyStore(path);
+    const approvalReplay = await restarted.beginOperation(agentId, "71", "approval");
+    const expiryReplay = await restarted.beginOperation(agentId, "72", "expiry");
+    assert.equal(approvalReplay.created, false);
+    assert.equal(approvalReplay.operation.state, "uncertain");
+    assert.equal(expiryReplay.created, false);
+    assert.equal(expiryReplay.operation.state, "submitted");
+    await restarted.confirmOperation(agentId, "72", "expiry", "expired");
+    assert.equal((await restarted.getOperation(agentId, "72", "expiry")).state, "confirmed");
+
+    const parsed = JSON.parse(await readFile(path, "utf8"));
+    assert.equal(parsed.version, 2);
+    assert.equal(parsed.operations.length, 2);
+  });
+});
+
+
+test("operation confirmation requires an advanced or terminal contract state", async () => {
+  await withStore(async (path) => {
+    const store = new JsonIdempotencyStore(path);
+    await store.beginOperation(agentId, "74", "approval");
+    await store.beginOperation(agentId, "75", "expiry");
+    await assert.rejects(
+      store.confirmOperation(agentId, "74", "approval", "pending"),
+      /does not resolve/
+    );
+    await store.confirmOperation(agentId, "74", "approval", "processing");
+    // A concurrently executed payment supersedes an expiry attempt safely.
+    await store.confirmOperation(agentId, "75", "expiry", "processing");
+    assert.equal((await store.listUnresolvedOperations(agentId)).length, 0);
+  });
+});
+
+
+test("allows a new operation attempt only after an explicit pre-submit rejection", async () => {
+  await withStore(async (path) => {
+    const store = new JsonIdempotencyStore(path);
+    const first = await store.beginOperation(agentId, "87", "approval");
+    assert.equal(first.created, true);
+    await store.rejectOperation(agentId, "87", "approval", "invalid_device_signature");
+    const second = await store.beginOperation(agentId, "87", "approval");
+    assert.equal(second.created, true);
+    assert.equal(second.operation.state, "submitting");
+    assert.equal(second.operation.attempt_count, 2);
+    assert.equal(second.operation.error_code, null);
   });
 });
