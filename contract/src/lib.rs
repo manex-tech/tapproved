@@ -924,6 +924,26 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "daily usage overflow")]
+    fn request_rejects_daily_usage_arithmetic_overflow() {
+        let mut c = request_contract(FIXTURE_NOW);
+        let day = FIXTURE_NOW / NANOS_PER_DAY;
+        c.daily_usage.insert(day, DailyUsage { spent_yocto: u128::MAX, reserved_yocto: 0 });
+        c.retained_daily_days.push(day);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        c.request_spend(account("merchant.testnet"), U128(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "payment is not active")]
+    fn transfer_callback_cannot_commit_a_payment_twice() {
+        let mut c = fixture_contract(ESP32_PUBLIC_KEY);
+        mark_processing(&mut c, 42);
+        settle_transfer(&mut c, 42, FIXTURE_NOW, PromiseResult::Successful(vec![]));
+        c.on_transfer_result(42);
+    }
+
+    #[test]
     fn failed_transfer_releases_capacity_for_a_new_request() {
         let mut c = request_contract(FIXTURE_NOW);
         context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
