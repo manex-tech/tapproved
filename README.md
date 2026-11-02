@@ -32,7 +32,7 @@ The contract is the policy authority. The relay authenticates agent requests, pe
 | Testnet deployment | User-confirmed deployed and tested using NEAR CLI; see [deployment status](docs/TESTNET-DEPLOYMENT.md) |
 | ESP32 approval firmware | Implemented prototype; PlatformIO build in CI |
 | Approval protocol v1 | Documented with deterministic fixture |
-| Relay | Authenticated payment, approval, transaction and recovery APIs; durable request/operation journal; separate least-privilege request, approval and expiry signers; bounded ESP32 serial bridge; transaction receipt polling; finalized-chain-time expiry and restart-recovery monitors |
+| Relay | Authenticated payment, approval, transaction and recovery APIs; durable request/operation journal; separate least-privilege request, approval and expiry signers; bounded ESP32 serial bridge; transaction receipt polling; finalized-chain-time expiry and restart-recovery monitors; HTTP-level integration coverage for payment, hardware approval, idempotency and recovery flows |
 | Local simulator | Implemented; uses an ephemeral key not registered on-chain |
 | Agent transaction orchestration | `request_spend`, automatic `execute_approved_spend`, and durable restart recovery for approval/expiry operations implemented; uncertain request attribution is retained for manual review |
 | Serial relay-to-device bridge | Bounded newline-delimited USB serial transport, ESP32 frame parser and one-cycle approval/signature submission are implemented; transaction and receipt status API now provides explicit finality and receipt outcomes |
