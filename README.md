@@ -45,7 +45,7 @@ The first recorded hardware-gated testnet payment is documented in [the hardware
 
 - **Contract:** `contract/src/lib.rs` owns policy, payment state, reservations, signature verification, transfer promises and callbacks.
 - **Firmware:** `firmware/src/main.cpp` validates the configured contract/network, reconstructs the v1 message, waits for a physical button press and signs with the device Ed25519 key.
-- **Relay:** `relay/server.js` exposes health/read views and authenticated `POST /v1/payment-requests`; `relay/payment-requests.js` validates requests and persists idempotency; `relay/near-signer.js` verifies and uses a narrowly scoped agent FunctionCall key. `relay/near-rpc.js` queries NEAR views.
+- **Relay:** `relay/server.js` exposes health/read views, authenticated `POST /v1/payment-requests` and `GET /v1/pending-approvals` for the active contract-pending payment; `relay/payment-requests.js` validates requests and persists idempotency; `relay/near-signer.js` verifies and uses a narrowly scoped agent FunctionCall key. `relay/near-rpc.js` queries NEAR views.
 - **Protocol:** `docs/APPROVAL-PROTOCOL.md` defines the exact signed byte sequence. `protocol/v1-vector.json` is a deterministic interoperability fixture.
 - **Simulator:** `relay/simulator.js` locally demonstrates encoding and signing with a temporary keypair. It cannot authorize an on-chain payment.
 

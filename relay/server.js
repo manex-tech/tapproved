@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
-import { getActivePayment, getPolicy } from "./near-rpc.js";
+import { DEFAULT_CONTRACT_ID, getActivePayment, getPolicy } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
 import { createNearAgentSigner } from "./near-signer.js";
 import {
@@ -80,6 +80,7 @@ export function createRelayServer(options = {}) {
   const agentId = options.agentId ?? DEFAULT_AGENT_ID;
   const idempotencyStore = options.idempotencyStore;
   const submitPayment = options.submitPayment;
+  const readActivePayment = options.getActivePayment ?? getActivePayment;
 
   return createServer(async (request, response) => {
     let pathname;
@@ -157,6 +158,27 @@ export function createRelayServer(options = {}) {
           // Fall through to a generic service error if the journal is unavailable.
         }
         send(response, 503, { error: "payment_submission_unavailable" });
+      }
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/v1/pending-approvals") {
+      if (!authenticate(request)) {
+        send(response, 401, { error: "unauthorized" }, { "www-authenticate": "Bearer" });
+        return;
+      }
+      try {
+        const activePayment = await readActivePayment({ env: { NEAR_CONTRACT_ID: DEFAULT_CONTRACT_ID } });
+        if (activePayment && activePayment.agent_id !== agentId) throw new Error("unexpected active payment agent");
+        const pending = activePayment?.status === "pending" ? activePayment : null;
+        send(response, 200, {
+          network: "testnet",
+          contract_id: DEFAULT_CONTRACT_ID,
+          approval_required: pending !== null,
+          payment: pending
+        });
+      } catch {
+        send(response, 502, { error: "near_rpc_failed" });
       }
       return;
     }
