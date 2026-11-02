@@ -145,10 +145,12 @@ export async function getTransactionStatus(transactionHash, options = {}) {
   const payload = await response.json();
   if (payload.error) {
     const message = String(payload.error.message ?? "unknown NEAR RPC error");
-    if (/UNKNOWN_TRANSACTION|transaction.*(not found|does not exist)|not found.*transaction/i.test(message)) {
+    const causeName = String(payload.error.cause?.name ?? payload.error.name ?? "");
+    const errorDetails = `${causeName} ${message}`;
+    if (/UNKNOWN_TRANSACTION|unknown transaction|transaction.*(not found|does not exist|doesn't exist)|not found.*transaction/i.test(errorDetails)) {
       throw new TransactionNotFoundError();
     }
-    if (/TIMEOUT_ERROR|timed out|timeout/i.test(message)) {
+    if (/TIMEOUT_ERROR|timed out|timeout/i.test(errorDetails)) {
       throw new TransactionWaitTimeoutError();
     }
     throw new Error(`NEAR RPC error: ${message}`);
