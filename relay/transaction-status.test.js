@@ -130,3 +130,37 @@ test("rejects transactions outside the canonical contract or with extra actions"
     /invalid transaction status/
   );
 });
+
+
+test("accepts canonical expire_payment transactions for receipt tracking", async () => {
+  const expiryTransaction = {
+    final_execution_status: "FINAL",
+    status: { SuccessValue: "" },
+    transaction: {
+      hash,
+      signer_id: "manex-agent.testnet",
+      receiver_id: "manextech.testnet",
+      actions: [{ FunctionCall: { method_name: "expire_payment" } }]
+    },
+    transaction_outcome: { id: hash, outcome: { gas_burnt: 1, status: { SuccessReceiptId: "expiry-receipt" } } },
+    receipts_outcome: [{
+      id: "expiry-receipt",
+      outcome: {
+        executor_id: "manextech.testnet",
+        gas_burnt: 1,
+        tokens_burnt: "1",
+        status: { SuccessValue: "" },
+        receipt_ids: []
+      }
+    }]
+  };
+  const actual = await getTransactionStatus(hash, {
+    env: {},
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ result: expiryTransaction })
+    })
+  });
+  assert.deepEqual(actual, expiryTransaction);
+});

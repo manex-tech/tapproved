@@ -6,6 +6,7 @@ import {
   CANONICAL_AGENT_ID,
   CANONICAL_CONTRACT_ID,
   APPROVE_SPEND_METHODS,
+  EXPIRE_PAYMENT_METHODS,
   MAX_SIGNER_ALLOWANCE_YOCTO,
   SignerConfigurationError,
   createNearAgentSigner,
@@ -459,4 +460,68 @@ test("refuses an unregistered public key and invalid signature before any contra
     (error) => error.code === "invalid_device_signature"
   );
   assert.equal(calls, 0);
+});
+
+
+const expiryPermission = {
+  FunctionCall: {
+    receiver_id: CANONICAL_CONTRACT_ID,
+    method_names: ["expire_payment"],
+    allowance: "1000000000000000000000000"
+  }
+};
+
+test("expiry signer permission is restricted to expire_payment only", () => {
+  const result = validateAgentFunctionCallKey(
+    accessKey(expiryPermission),
+    publicKey,
+    CANONICAL_CONTRACT_ID,
+    EXPIRE_PAYMENT_METHODS
+  );
+  assert.deepEqual(result.method_names, ["expire_payment"]);
+  assert.throws(
+    () => validateAgentFunctionCallKey(
+      accessKey(restrictedPermission),
+      publicKey,
+      CANONICAL_CONTRACT_ID,
+      EXPIRE_PAYMENT_METHODS
+    ),
+    SignerConfigurationError
+  );
+});
+
+test("expiry signer submits only expire_payment with a safe payment ID", async () => {
+  const { createNearExpirySigner } = await import("./near-signer.js");
+  const calls = [];
+  class MockProvider {}
+  class MockAccount {
+    async getAccessKeyList() { return accessKey(expiryPermission); }
+    async callFunctionRaw(args) {
+      calls.push(args);
+      return { transaction_outcome: { id: "expiry-transaction-hash" } };
+    }
+  }
+  const signer = await createNearExpirySigner({
+    env: { ...env, NEAR_EXPIRY_SIGNER_PRIVATE_KEY: secret },
+    sdk: {
+      Account: MockAccount,
+      JsonRpcProvider: MockProvider,
+      KeyPair: { fromString: () => ({ getPublicKey: () => ({ toString: () => publicKey }) }) },
+      teraToGas: (value) => {
+        assert.equal(value, "30");
+        return 30_000_000_000_000n;
+      }
+    }
+  });
+  const result = await signer.expirePayment("46");
+  assert.deepEqual(result, {
+    transaction_hash: "expiry-transaction-hash",
+    payment_id: "46"
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].methodName, "expire_payment");
+  assert.deepEqual(calls[0].args, { payment_id: 46 });
+  assert.equal(calls[0].waitUntil, "FINAL");
+  await assert.rejects(signer.expirePayment("9007199254740992"), /safe decimal string/);
+  assert.equal(calls.length, 1);
 });

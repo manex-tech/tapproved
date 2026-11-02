@@ -3,7 +3,7 @@ const DEFAULT_CONTRACT_ID = "manextech.testnet";
 const DEFAULT_SIGNER_ACCOUNT_ID = "manex-agent.testnet";
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const TRANSACTION_WAIT_UNTIL = new Set(["NONE", "INCLUDED", "EXECUTED_OPTIMISTIC", "INCLUDED_FINAL", "EXECUTED", "FINAL"]);
-const TAPPROVED_METHODS = new Set(["request_spend", "execute_approved_spend", "approve_spend"]);
+const TAPPROVED_METHODS = new Set(["request_spend", "execute_approved_spend", "approve_spend", "expire_payment"]);
 
 function configuration(env = process.env) {
   const rpcUrl = env.NEAR_RPC_URL || DEFAULT_RPC_URL;
@@ -172,3 +172,35 @@ export async function getTransactionStatus(transactionHash, options = {}) {
 }
 
 export { DEFAULT_RPC_URL, DEFAULT_CONTRACT_ID };
+
+
+/**
+ * Read the timestamp of the latest finalized NEAR block. Expiry decisions
+ * must use chain time rather than the relay host clock.
+ */
+export async function getLatestBlockTimestampNs(options = {}) {
+  const { rpcUrl } = configuration(options.env);
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable");
+  const response = await fetchImpl(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "tapproved-finalized-block-time",
+      method: "block",
+      params: { finality: "final" }
+    }),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`NEAR RPC HTTP ${response.status}`);
+  const payload = await response.json();
+  if (payload.error) {
+    throw new Error(`NEAR RPC error: ${payload.error.message || "unknown error"}`);
+  }
+  const timestamp = payload.result?.header?.timestamp_nanosec;
+  if (typeof timestamp !== "string" || !/^[0-9]+$/.test(timestamp)) {
+    throw new Error("NEAR RPC returned an invalid finalized block timestamp");
+  }
+  return timestamp;
+}

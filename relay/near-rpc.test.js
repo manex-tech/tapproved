@@ -88,3 +88,56 @@ test("queries a payment by its exact decimal ID", async () => {
   await assert.rejects(getPayment("not-a-number"), /decimal string/);
   await assert.rejects(getPayment("9007199254740992"), /safe JSON integer range/);
 });
+
+
+test("reads the finalized NEAR block timestamp as a decimal nanosecond string", async () => {
+  const capture = {};
+  const { getLatestBlockTimestampNs } = await import("./near-rpc.js");
+  const timestamp = "1793520012345678901";
+  const result = await getLatestBlockTimestampNs({
+    env: {},
+    fetchImpl: async (url, init) => {
+      capture.url = url;
+      capture.request = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jsonrpc: "2.0",
+          id: "tapproved-finalized-block-time",
+          result: { header: { timestamp_nanosec: timestamp } }
+        })
+      };
+    }
+  });
+  assert.equal(result, timestamp);
+  assert.equal(capture.url, "https://rpc.testnet.near.org");
+  assert.equal(capture.request.method, "block");
+  assert.deepEqual(capture.request.params, { finality: "final" });
+});
+
+test("rejects malformed finalized block timestamps and RPC errors", async () => {
+  const { getLatestBlockTimestampNs } = await import("./near-rpc.js");
+  await assert.rejects(
+    getLatestBlockTimestampNs({
+      env: {},
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ result: { header: { timestamp_nanosec: 1793520012345678901 } } })
+      })
+    }),
+    /invalid finalized block timestamp/
+  );
+  await assert.rejects(
+    getLatestBlockTimestampNs({
+      env: {},
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ error: { message: "node unavailable" } })
+      })
+    }),
+    /node unavailable/
+  );
+});

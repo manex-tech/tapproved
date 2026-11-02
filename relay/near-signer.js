@@ -8,6 +8,7 @@ export const CANONICAL_CONTRACT_ID = "manextech.testnet";
 export const CANONICAL_AGENT_ID = "manex-agent.testnet";
 export const REQUEST_SPEND_METHODS = Object.freeze(["request_spend", "execute_approved_spend"]);
 export const APPROVE_SPEND_METHODS = Object.freeze(["approve_spend"]);
+export const EXPIRE_PAYMENT_METHODS = Object.freeze(["expire_payment"]);
 export const MAX_SIGNER_ALLOWANCE_YOCTO = 5n * 10n ** 24n;
 
 export class SignerConfigurationError extends Error {
@@ -383,6 +384,75 @@ export async function createNearApprovalSigner(options = {}) {
 
   return Object.freeze({
     approveSpend,
+    signerAccountId: config.agentId,
+    contractId: config.contractId,
+    networkId: config.networkId,
+    publicKey: verifiedKey.public_key,
+    permission: verifiedKey
+  });
+}
+
+
+/**
+ * A third, isolated FunctionCall key lets the relay invoke only the
+ * contract's permissionless expiry method. It cannot request, approve,
+ * execute or transfer a payment.
+ */
+export async function createNearExpirySigner(options = {}) {
+  const env = options.env ?? process.env;
+  const expiryPrivateKey = env.NEAR_EXPIRY_SIGNER_PRIVATE_KEY;
+  if (typeof expiryPrivateKey !== "string" || !expiryPrivateKey.startsWith("ed25519:")) {
+    throw new SignerConfigurationError("NEAR_EXPIRY_SIGNER_PRIVATE_KEY must be an Ed25519 secret key");
+  }
+  const expiryEnv = { ...env, NEAR_SIGNER_PRIVATE_KEY: expiryPrivateKey };
+  const config = readSignerConfiguration(expiryEnv);
+  const sdk = options.sdk ?? { Account, JsonRpcProvider, KeyPair, teraToGas };
+
+  let keyPair;
+  try {
+    keyPair = sdk.KeyPair.fromString(config.privateKey);
+  } catch {
+    throw new SignerConfigurationError("NEAR_EXPIRY_SIGNER_PRIVATE_KEY could not be parsed");
+  }
+
+  const provider = new sdk.JsonRpcProvider({ url: config.rpcUrl });
+  const account = new sdk.Account(config.agentId, provider, config.privateKey);
+  let accessKeyList;
+  try {
+    accessKeyList = await account.getAccessKeyList();
+  } catch {
+    throw new SignerConfigurationError("could not verify payment-expiry signer access-key permissions");
+  }
+  const publicKey = keyPair.getPublicKey().toString();
+  const verifiedKey = validateAgentFunctionCallKey(
+    accessKeyList,
+    publicKey,
+    config.contractId,
+    EXPIRE_PAYMENT_METHODS
+  );
+
+  async function expirePayment(paymentId) {
+    if (typeof paymentId !== "string" || !/^[0-9]+$/.test(paymentId) ||
+        BigInt(paymentId) > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new TypeError("payment ID must be a safe decimal string");
+    }
+    const outcome = await account.callFunctionRaw({
+      contractId: config.contractId,
+      methodName: "expire_payment",
+      args: { payment_id: Number(BigInt(paymentId)) },
+      gas: sdk.teraToGas("30"),
+      deposit: 0n,
+      waitUntil: "FINAL"
+    });
+    const transactionHash = outcome?.transaction_outcome?.id ?? outcome?.transaction?.hash;
+    if (typeof transactionHash !== "string" || transactionHash.length === 0) {
+      throw new Error("NEAR expire_payment did not return a transaction hash");
+    }
+    return { transaction_hash: transactionHash, payment_id: paymentId };
+  }
+
+  return Object.freeze({
+    expirePayment,
     signerAccountId: config.agentId,
     contractId: config.contractId,
     networkId: config.networkId,
