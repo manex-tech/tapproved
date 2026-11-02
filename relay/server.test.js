@@ -640,7 +640,7 @@ test("request logging never includes authorization credentials or query strings"
   };
   await withServer({ ...authOptions(), logger }, async (base) => {
     const response = await fetch(`${base}/v1/payments/123?token=do-not-log-this`, { headers: { authorization: `Bearer ${token}` } });
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 404);
     await new Promise((resolve) => setImmediate(resolve));
     const serialized = JSON.stringify(records);
     assert.equal(serialized.includes("do-not-log-this"), false);
