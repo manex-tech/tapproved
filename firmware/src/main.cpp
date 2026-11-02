@@ -9,6 +9,7 @@
 #include "approval_protocol.h"
 #include "request_id_guard.h"
 #include "zeroizing_buffer.h"
+#include "key_record_policy.h"
 
 namespace {
 constexpr uint8_t APPROVAL_BUTTON_PIN = 25;
@@ -100,17 +101,46 @@ bool encodeApproval(const JsonDocument& doc, uint8_t* out, size_t& out_len) {
 
 bool loadOrCreateKey() {
   if (!preferences.begin(NVS_NAMESPACE, false)) return false;
-  const size_t stored = preferences.getBytesLength(NVS_SEED_KEY);
-  if (stored == sizeof(private_seed)) {
-    preferences.getBytes(NVS_SEED_KEY, private_seed, sizeof(private_seed));
+
+  const bool key_exists = preferences.isKey(NVS_SEED_KEY);
+  const size_t stored_length = preferences.getBytesLength(NVS_SEED_KEY);
+  const KeyRecordAction action = decideKeyRecordAction(
+    key_exists,
+    stored_length,
+    sizeof(private_seed)
+  );
+
+  if (action == KeyRecordAction::RejectMalformed) {
+    memset(private_seed, 0, sizeof(private_seed));
+    preferences.end();
+    return false;
+  }
+
+  if (action == KeyRecordAction::LoadExisting) {
+    const size_t loaded = preferences.getBytes(
+      NVS_SEED_KEY,
+      private_seed,
+      sizeof(private_seed)
+    );
+    if (loaded != sizeof(private_seed)) {
+      memset(private_seed, 0, sizeof(private_seed));
+      preferences.end();
+      return false;
+    }
   } else {
     esp_fill_random(private_seed, sizeof(private_seed));
-    if (preferences.putBytes(NVS_SEED_KEY, private_seed, sizeof(private_seed)) != sizeof(private_seed)) {
+    const size_t written = preferences.putBytes(
+      NVS_SEED_KEY,
+      private_seed,
+      sizeof(private_seed)
+    );
+    if (written != sizeof(private_seed)) {
       memset(private_seed, 0, sizeof(private_seed));
       preferences.end();
       return false;
     }
   }
+
   preferences.end();
   Ed25519::derivePublicKey(public_key, private_seed);
   key_ready = true;
@@ -198,7 +228,7 @@ void setup() {
   pinMode(APPROVAL_BUTTON_PIN, INPUT_PULLUP);
   delay(300);
   if (!loadOrCreateKey()) {
-    Serial.println("FATAL: unable to load/create device key.");
+    Serial.println("FATAL: device key storage unavailable or malformed; refusing identity replacement.");
     return;
   }
   Serial.println("\nTapproved ESP32 prototype ready.");
