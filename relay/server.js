@@ -64,6 +64,7 @@ function paymentRequestResponse(record, replayed) {
     state: record.state,
     replayed,
     transaction_hash: record.result?.transaction_hash ?? null,
+    execution_transaction_hash: record.result?.execution_transaction_hash ?? null,
     payment: record.result?.payment ?? null
   };
 }
