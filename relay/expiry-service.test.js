@@ -56,7 +56,6 @@ test("expiry monitor compares expiry against finalized chain time, not host time
   const monitor = createPaymentExpiryMonitor({
     env: {},
     operationStore: createOperationStore(),
-    operationStore: createOperationStore(),
     expirySigner: { expirePayment: async () => { submissions += 1; } },
     getActivePayment: async () => payment,
     getLatestBlockTimestampNs: async () => "1000"
@@ -71,6 +70,7 @@ test("expired pending payment is submitted once and confirmed from contract stat
   let submissions = 0;
   const monitor = createPaymentExpiryMonitor({
     env: {},
+    operationStore: createOperationStore(),
     expirySigner: {
       async expirePayment(paymentId) {
         submissions += 1;
@@ -99,6 +99,7 @@ test("expired pending payment is submitted once and confirmed from contract stat
 test("expired automatically approved payments are eligible for contract expiry", async () => {
   let submitted = false;
   const monitor = createPaymentExpiryMonitor({
+    operationStore: createOperationStore(),
     expirySigner: {
       async expirePayment() {
         submitted = true;
@@ -117,12 +118,14 @@ test("expired automatically approved payments are eligible for contract expiry",
 test("does not expire processing or foreign-agent payments", async () => {
   let submissions = 0;
   const monitor = createPaymentExpiryMonitor({
+    operationStore: createOperationStore(),
     expirySigner: { expirePayment: async () => { submissions += 1; } },
     getActivePayment: async () => ({ ...payment, status: "processing" }),
     getLatestBlockTimestampNs: async () => "1001"
   });
   assert.equal((await monitor.runOnce()).state, "not_expirable");
   const foreign = createPaymentExpiryMonitor({
+    operationStore: createOperationStore(),
     expirySigner: { expirePayment: async () => { submissions += 1; } },
     getActivePayment: async () => ({ ...payment, agent_id: "attacker.testnet" }),
     getLatestBlockTimestampNs: async () => "1001"
