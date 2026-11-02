@@ -548,3 +548,99 @@ test("hardware approval processing fails closed when not configured and hides in
     assert.deepEqual(await response.json(), { error: "approval_submission_outcome_unknown" });
   });
 });
+
+
+test("payment status endpoint includes contract transaction and receipt states", async () => {
+  const payment = {
+    id: "45",
+    agent_id: "manex-agent.testnet",
+    recipient_id: "merchant.testnet",
+    amount_yocto: "123456789",
+    status: "paid"
+  };
+  const calls = [];
+  await withServer({
+    ...authOptions(),
+    getPayment: async () => payment,
+    idempotencyStore: {
+      async getPaymentTransactions(agentId, paymentId) {
+        assert.equal(agentId, "manex-agent.testnet");
+        assert.equal(paymentId, "45");
+        return {
+          request_transaction_hash: "request-hash",
+          execution_transaction_hash: "execution-hash",
+          approval_transaction_hash: "approval-hash"
+        };
+      }
+    },
+    getTransactionStatus: async (hash, signerId, options) => {
+      calls.push({ hash, signerId, options });
+      if (hash === "execution-hash") throw new Error("receipt RPC unavailable");
+      return { transaction_hash: hash, state: hash === "request-hash" ? "success" : "pending" };
+    }
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/payments/45`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.payment.status, "paid");
+    assert.equal(body.transaction_tracking_available, true);
+    assert.deepEqual(body.transactions, {
+      request: { transaction_hash: "request-hash", state: "success" },
+      execution: { transaction_hash: "execution-hash", state: "unavailable" },
+      approval: { transaction_hash: "approval-hash", state: "pending" }
+    });
+    assert.equal(calls.length, 3);
+    assert.equal(calls[0].signerId, "manex-agent.testnet");
+  });
+});
+
+test("hardware approval route persists its approval transaction hash", async () => {
+  const recorded = [];
+  await withServer({
+    ...authOptions(),
+    idempotencyStore: {
+      async recordPaymentTransaction(...args) { recorded.push(args); }
+    },
+    processHardwareApproval: async () => ({
+      state: "submitted",
+      payment_id: "46",
+      transaction_hash: "approval-46-hash",
+      payment: { id: "46", status: "processing" }
+    })
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/approvals/process`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.transaction_tracking_available, true);
+    assert.deepEqual(recorded, [[
+      "manex-agent.testnet",
+      "46",
+      "approval",
+      "approval-46-hash"
+    ]]);
+  });
+});
+
+test("payment state remains available when the local transaction journal is unavailable", async () => {
+  await withServer({
+    ...authOptions(),
+    getPayment: async () => ({ id: "47", agent_id: "manex-agent.testnet", status: "processing" }),
+    idempotencyStore: {
+      async getPaymentTransactions() { throw new Error("journal is unavailable"); }
+    }
+  }, async (base) => {
+    const response = await fetch(`${base}/v1/payments/47`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.payment.status, "processing");
+    assert.equal(body.transaction_tracking_available, false);
+    assert.deepEqual(body.transactions, {});
+  });
+});
