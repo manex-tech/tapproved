@@ -535,7 +535,7 @@ mod tests {
             .current_account_id(account("tapproved.testnet"))
             .predecessor_account_id(account("owner.testnet"))
             .block_timestamp(FIXTURE_NOW)
-            .account_balance(near_sdk::NearToken::from_near(1_000))
+            .account_balance(near_sdk::NearToken::from_yoctonear(FIXTURE_AMOUNT * 2))
             .build());
         let mut c = Tapproved::new(
             account("agent.testnet"), decode_hex(public_key), U128(10), U128(FIXTURE_AMOUNT),
