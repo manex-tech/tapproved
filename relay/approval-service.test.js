@@ -304,3 +304,31 @@ test("allows approval at exact expiry equality because the contract expires only
   assert.equal(result.state, "submitted");
   assert.equal(calls.submits, 1);
 });
+
+test("fails closed when the ESP32 resets during approval and does not submit or retry", async () => {
+  let deviceRequests = 0;
+  let submissions = 0;
+  const { processor, operationStore, calls } = dependencies({
+    serialBridge: {
+      async connect() { calls.connects += 1; },
+      async requestApproval() {
+        deviceRequests += 1;
+        const error = new Error("USB serial device disconnected");
+        error.code = "serial_port_closed";
+        throw error;
+      }
+    },
+    approvalSigner: {
+      async approveSpend() {
+        submissions += 1;
+        throw new Error("must not submit without a completed device signature");
+      }
+    }
+  });
+
+  await assert.rejects(processor(), (error) => error.code === "serial_port_closed");
+  assert.equal(deviceRequests, 1);
+  assert.equal(submissions, 0);
+  assert.equal(calls.submits, 0);
+  assert.equal(await operationStore.getOperation("manex-agent.testnet", "45", "approval"), null);
+});
