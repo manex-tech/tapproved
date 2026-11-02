@@ -74,6 +74,7 @@ test("integrates authenticated payment creation, hardware approval, lifecycle re
     const processApproval = createApprovalProcessor({
       operationStore: store,
       getActivePayment: async () => contractPayment,
+      getLatestBlockTimestampNs: async () => "1793519000000000000",
       serialBridge: {
         async connect() {},
         async requestApproval(payment) {
@@ -194,6 +195,7 @@ test("integrates ambiguous approval failure with durable retry suppression and m
     const processApproval = createApprovalProcessor({
       operationStore: store,
       getActivePayment: async () => pendingPayment,
+      getLatestBlockTimestampNs: async () => "1793519000000000000",
       serialBridge: {
         async connect() {},
         async requestApproval() {
