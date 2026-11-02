@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
-import { DEFAULT_CONTRACT_ID, getActivePayment, getPolicy } from "./near-rpc.js";
+import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
 import { createNearAgentSigner } from "./near-signer.js";
 import {
@@ -81,6 +81,7 @@ export function createRelayServer(options = {}) {
   const idempotencyStore = options.idempotencyStore;
   const submitPayment = options.submitPayment;
   const readActivePayment = options.getActivePayment ?? getActivePayment;
+  const readPayment = options.getPayment ?? getPayment;
 
   return createServer(async (request, response) => {
     let pathname;
@@ -175,10 +176,53 @@ export function createRelayServer(options = {}) {
           network: "testnet",
           contract_id: DEFAULT_CONTRACT_ID,
           approval_required: pending !== null,
-          payment: pending
+          payment: pending,
+          approval_request: pending ? {
+            contract_id: DEFAULT_CONTRACT_ID,
+            network_id: "testnet",
+            payment_id: pending.id,
+            recipient_id: pending.recipient_id,
+            amount_yocto: pending.amount_yocto,
+            nonce: pending.nonce,
+            expires_at_ns: pending.expires_at_ns
+          } : null
         });
       } catch {
         send(response, 502, { error: "near_rpc_failed" });
+      }
+      return;
+    }
+
+    const paymentMatch = request.method === "GET"
+      ? pathname.match(/^\\/v1\\/payments\\/([0-9]+)$/)
+      : null;
+    if (paymentMatch) {
+      if (!authenticate(request)) {
+        send(response, 401, { error: "unauthorized" }, { "www-authenticate": "Bearer" });
+        return;
+      }
+      try {
+        const paymentId = paymentMatch[1];
+        const payment = await readPayment(paymentId, { env: { NEAR_CONTRACT_ID: DEFAULT_CONTRACT_ID } });
+        if (!payment || payment.id !== paymentId || payment.agent_id !== agentId) {
+          send(response, 404, { error: "payment_not_found" });
+          return;
+        }
+        const approvalRequired = payment.status === "pending";
+        const terminal = ["paid", "failed", "expired", "cancelled"].includes(payment.status);
+        send(response, 200, {
+          network: "testnet",
+          contract_id: DEFAULT_CONTRACT_ID,
+          approval_required: approvalRequired,
+          terminal,
+          payment
+        });
+      } catch (error) {
+        if (error instanceof RangeError || error instanceof TypeError) {
+          send(response, 400, { error: "invalid_payment_id" });
+        } else {
+          send(response, 502, { error: "near_rpc_failed" });
+        }
       }
       return;
     }
