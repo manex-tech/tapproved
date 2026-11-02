@@ -91,7 +91,7 @@ Configure the relay from the repository root:
 cp .env.example .env
 ```
 
-Set a high-entropy `AGENT_API_TOKEN` and provide `NEAR_SIGNER_PRIVATE_KEY` only if a dedicated, already-registered FunctionCall key exists on `manex-agent.testnet`. That key must be restricted to receiver `manextech.testnet`, methods `request_spend` and `execute_approved_spend` only, and a finite allowance no greater than 5 NEAR. Do not use a FullAccess key. The relay verifies this permission against the live Testnet access-key list and refuses broader keys. Keep `.env` local; it is git-ignored.
+Set a high-entropy `AGENT_API_TOKEN` and configure the restricted agent signer as described in the security section. For USB serial, set `SERIAL_PORT` to the ESP32 device path (for example `COM7` on Windows or `/dev/ttyUSB0` on Linux). `SERIAL_BAUD_RATE` defaults to 115200 and `SERIAL_APPROVAL_TIMEOUT_MS` defaults to 35000. Keep `.env` local; it is git-ignored. The serial module is independently tested and is not yet wired into pending-approval orchestration.
 
 Start the relay:
 
