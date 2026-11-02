@@ -6,6 +6,41 @@ import {
 } from "./expiry-service.js";
 import { CANONICAL_AGENT_ID } from "./near-signer.js";
 
+function createOperationStore() {
+  const operations = new Map();
+  const key = (agentId, paymentId, kind) => `${agentId}:${paymentId}:${kind}`;
+  return {
+    operations,
+    async getOperation(agentId, paymentId, kind) {
+      return operations.get(key(agentId, paymentId, kind)) ?? null;
+    },
+    async beginOperation(agentId, paymentId, kind) {
+      const id = key(agentId, paymentId, kind);
+      if (operations.has(id)) return { created: false, operation: operations.get(id) };
+      const operation = { agent_id: agentId, payment_id: paymentId, kind, state: "submitting" };
+      operations.set(id, operation);
+      return { created: true, operation };
+    },
+    async completeOperation(agentId, paymentId, kind, transactionHash) {
+      const operation = operations.get(key(agentId, paymentId, kind));
+      operation.state = "submitted";
+      operation.transaction_hash = transactionHash;
+      return operation;
+    },
+    async markOperationUncertain(agentId, paymentId, kind) {
+      const operation = operations.get(key(agentId, paymentId, kind));
+      operation.state = "uncertain";
+      return operation;
+    },
+    async confirmOperation(agentId, paymentId, kind, observedStatus) {
+      const operation = operations.get(key(agentId, paymentId, kind));
+      operation.state = "confirmed";
+      operation.observed_status = observedStatus;
+      return operation;
+    }
+  };
+}
+
 const payment = {
   id: "51",
   agent_id: CANONICAL_AGENT_ID,
@@ -20,6 +55,8 @@ test("expiry monitor compares expiry against finalized chain time, not host time
   let submissions = 0;
   const monitor = createPaymentExpiryMonitor({
     env: {},
+    operationStore: createOperationStore(),
+    operationStore: createOperationStore(),
     expirySigner: { expirePayment: async () => { submissions += 1; } },
     getActivePayment: async () => payment,
     getLatestBlockTimestampNs: async () => "1000"
@@ -55,7 +92,7 @@ test("expired pending payment is submitted once and confirmed from contract stat
   assert.equal(first.payment.status, "expired");
 
   const second = await monitor.runOnce();
-  assert.equal(second.state, "attempt_suppressed");
+  assert.equal(second.state, "reconciled");
   assert.equal(submissions, 1);
 });
 
@@ -94,9 +131,11 @@ test("does not expire processing or foreign-agent payments", async () => {
   assert.equal(submissions, 0);
 });
 
-test("does not retry an ambiguous expiry submission within the same process", async () => {
+test("persists ambiguous expiry attempts and suppresses retries across monitor restarts", async () => {
   let submissions = 0;
-  const monitor = createPaymentExpiryMonitor({
+  const durableStore = createOperationStore();
+  const first = createPaymentExpiryMonitor({
+    operationStore: durableStore,
     expirySigner: {
       async expirePayment() {
         submissions += 1;
@@ -106,8 +145,20 @@ test("does not retry an ambiguous expiry submission within the same process", as
     getActivePayment: async () => payment,
     getLatestBlockTimestampNs: async () => "1001"
   });
-  await assert.rejects(monitor.runOnce(), /connection lost after broadcast/);
-  assert.equal((await monitor.runOnce()).state, "attempt_suppressed");
+  await assert.rejects(first.runOnce(), /connection lost after broadcast/);
+  const restarted = createPaymentExpiryMonitor({
+    operationStore: durableStore,
+    expirySigner: {
+      async expirePayment() {
+        submissions += 1;
+        return { transaction_hash: "duplicate-must-not-submit" };
+      }
+    },
+    getActivePayment: async () => payment,
+    getLatestBlockTimestampNs: async () => "1001",
+    getPayment: async () => ({ ...payment, status: "pending" })
+  });
+  assert.equal((await restarted.runOnce()).state, "recovery_required");
   assert.equal(submissions, 1);
 });
 
@@ -115,6 +166,7 @@ test("expiry monitor suppresses overlapping polls", async () => {
   let release;
   const wait = new Promise((resolve) => { release = resolve; });
   const monitor = createPaymentExpiryMonitor({
+    operationStore: createOperationStore(),
     expirySigner: { expirePayment: async () => ({ transaction_hash: "unused" }) },
     getActivePayment: async () => {
       await wait;
