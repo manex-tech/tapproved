@@ -7,7 +7,8 @@ export const CANONICAL_NETWORK = "testnet";
 export const CANONICAL_CONTRACT_ID = "manextech.testnet";
 export const CANONICAL_AGENT_ID = "manex-agent.testnet";
 export const REQUEST_SPEND_METHODS = Object.freeze(["request_spend", "execute_approved_spend"]);
-export const APPROVE_SPEND_METHODS = Object.freeze(["approve_spend"]);\nexport const EXPIRE_PAYMENT_METHODS = Object.freeze(["expire_payment"]);
+export const APPROVE_SPEND_METHODS = Object.freeze(["approve_spend"]);
+export const EXPIRE_PAYMENT_METHODS = Object.freeze(["expire_payment"]);
 export const MAX_SIGNER_ALLOWANCE_YOCTO = 5n * 10n ** 24n;
 
 export class SignerConfigurationError extends Error {
