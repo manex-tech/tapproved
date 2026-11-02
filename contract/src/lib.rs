@@ -646,6 +646,19 @@ mod tests {
             .build());
     }
 
+    fn resolve_transfer(c: &mut Tapproved, payment_id: u64, timestamp: u64, result: PromiseResult) -> PaymentView {
+        use near_sdk::test_utils::{testing_env_with_promise_results, VMContextBuilder};
+        let mut payment = c.payments.get(&payment_id).unwrap().clone();
+        payment.status = PaymentStatus::Processing;
+        c.store_payment(payment);
+        testing_env_with_promise_results(
+            VMContextBuilder::new().current_account_id(account("tapproved.testnet"))
+                .predecessor_account_id(account("tapproved.testnet")).block_timestamp(timestamp).build(),
+            result,
+        );
+        c.on_transfer_result(payment_id)
+    }
+
     fn fixture_contract(public_key: &str) -> Tapproved {
         use near_sdk::test_utils::VMContextBuilder;
         use near_sdk::testing_env;
@@ -742,11 +755,12 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "request exceeds remaining UTC daily limit")]
-    fn daily_cap_is_enforced_across_reservations() {
+    fn daily_cap_counts_successfully_settled_spending() {
         let mut c = request_contract(FIXTURE_NOW);
         context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
-        c.request_spend(account("merchant.testnet"), U128(90));
-        c.active_payment_id = None;
+        let payment = c.request_spend(account("merchant.testnet"), U128(90));
+        resolve_transfer(&mut c, payment.id.0, FIXTURE_NOW, PromiseResult::Successful(vec![]));
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
         c.request_spend(account("merchant.testnet"), U128(61));
     }
 
@@ -818,6 +832,24 @@ mod tests {
 
 
     #[test]
+    fn failed_payment_releases_daily_capacity_for_a_new_request() {
+        let mut c = request_contract(FIXTURE_NOW);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let failed = c.request_spend(account("merchant.testnet"), U128(90));
+        let result = resolve_transfer(&mut c, failed.id.0, FIXTURE_NOW, PromiseResult::Failed);
+        assert_eq!(result.status, PaymentStatus::Failed);
+        let usage = c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY);
+        assert_eq!(usage.spent_yocto.0, 0);
+        assert_eq!(usage.reserved_yocto.0, 0);
+        context_at("agent.testnet", "tapproved.testnet", FIXTURE_NOW);
+        let next = c.request_spend(account("merchant.testnet"), U128(90));
+        assert_eq!(next.status, PaymentStatus::Pending);
+        let usage = c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY);
+        assert_eq!(usage.spent_yocto.0, 0);
+        assert_eq!(usage.reserved_yocto.0, 90);
+    }
+
+    #[test]
     fn transfer_callback_success_marks_payment_paid() {
         use near_sdk::test_utils::testing_env_with_promise_results;
         use near_sdk::test_utils::VMContextBuilder;
@@ -862,6 +894,50 @@ mod tests {
         assert_eq!(c.active_payment_id, None);
         assert_eq!(c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY).spent_yocto.0, 0);
         assert_eq!(c.get_daily_usage(FIXTURE_NOW / NANOS_PER_DAY).reserved_yocto.0, 0);
+    }
+
+    #[test]
+    fn expiry_after_utc_midnight_releases_the_original_day_reservation() {
+        let created_at = NANOS_PER_DAY - 1_000_000_000;
+        let mut c = request_contract(created_at);
+        context_at("agent.testnet", "tapproved.testnet", created_at);
+        let payment = c.request_spend(account("merchant.testnet"), U128(50));
+        let original_day = created_at / NANOS_PER_DAY;
+        assert_eq!(c.get_daily_usage(original_day).reserved_yocto.0, 50);
+        context_at("caller.testnet", "tapproved.testnet", payment.expires_at_ns.0 + 1);
+        c.expire_payment(payment.id.0);
+        assert_eq!(c.get_daily_usage(original_day).reserved_yocto.0, 0);
+        assert_eq!(c.get_daily_usage(original_day + 1).total_yocto.0, 0);
+    }
+
+    #[test]
+    fn daily_usage_history_is_bounded_to_90_days() {
+        let current_day = 1_000;
+        let mut c = request_contract(current_day * NANOS_PER_DAY);
+        for day in (current_day - 90)..current_day {
+            c.daily_usage.insert(day, DailyUsage { utc_day: day, spent_yocto: 1, reserved_yocto: 0 });
+            c.retained_daily_days.push(day);
+        }
+        context_at("agent.testnet", "tapproved.testnet", current_day * NANOS_PER_DAY);
+        c.request_spend(account("merchant.testnet"), U128(5));
+        assert_eq!(c.retained_daily_days.len(), MAX_RETAINED_DAILY_DAYS);
+        assert!(c.daily_usage.get(&(current_day - 90)).is_none());
+        assert!(c.daily_usage.get(&(current_day - 89)).is_some());
+        assert!(c.daily_usage.get(&current_day).is_some());
+    }
+
+    #[test]
+    #[should_panic(expected = "daily usage retention is full; oldest record still has an outstanding reservation")]
+    fn daily_history_never_prunes_an_outstanding_reservation() {
+        let current_day = 1_000;
+        let mut c = request_contract(current_day * NANOS_PER_DAY);
+        for day in (current_day - 90)..current_day {
+            let reserved = if day == current_day - 90 { 1 } else { 0 };
+            c.daily_usage.insert(day, DailyUsage { utc_day: day, spent_yocto: 1, reserved_yocto: reserved });
+            c.retained_daily_days.push(day);
+        }
+        context_at("agent.testnet", "tapproved.testnet", current_day * NANOS_PER_DAY);
+        c.request_spend(account("merchant.testnet"), U128(5));
     }
 
     #[test]
