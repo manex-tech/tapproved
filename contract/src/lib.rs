@@ -168,6 +168,59 @@ impl Tapproved {
         }
     }
 
+    /// Pause all new spending requests. Only the policy owner may change this state.
+    pub fn pause(&mut self) { self.assert_owner(); self.paused = true; }
+
+    /// Resume spending requests. Only the policy owner may change this state.
+    pub fn unpause(&mut self) { self.assert_owner(); self.paused = false; }
+
+    /// Cancel an active Pending or Approved payment and release its reservation.
+    pub fn cancel_payment(&mut self, payment_id: u64) {
+        self.assert_owner();
+        let index = self.active_index(payment_id);
+        let payment = self.payments[index].clone();
+        if payment.status != PaymentStatus::Pending && payment.status != PaymentStatus::Approved {
+            env::panic_str("only pending or approved payments can be cancelled");
+        }
+        self.release_reservation(&payment);
+        self.payments[index].status = PaymentStatus::Expired;
+        self.active_payment_id = None;
+    }
+
+    /// Replace the registered ESP32 Ed25519 public key.
+    pub fn rotate_device_key(&mut self, device_public_key: Vec<u8>) {
+        self.assert_owner();
+        if device_public_key.len() != 32 {
+            env::panic_str("device_public_key must contain exactly 32 Ed25519 public-key bytes");
+        }
+        self.device_public_key = device_public_key;
+    }
+
+    /// Replace the account authorized to request spending.
+    pub fn set_agent(&mut self, agent_id: AccountId) {
+        self.assert_owner();
+        self.agent_id = agent_id;
+    }
+
+    /// Add a recipient to the spending allowlist.
+    pub fn add_allowed_recipient(&mut self, recipient_id: AccountId) {
+        self.assert_owner();
+        if self.allowed_recipients.contains(&recipient_id) { env::panic_str("recipient is already allowlisted"); }
+        self.allowed_recipients.push(recipient_id);
+    }
+
+    /// Remove a recipient from the spending allowlist.
+    pub fn remove_allowed_recipient(&mut self, recipient_id: AccountId) {
+        self.assert_owner();
+        if !self.allowed_recipients.contains(&recipient_id) { env::panic_str("recipient is not allowlisted"); }
+        if self.allowed_recipients.len() == 1 { env::panic_str("allowlist must contain at least one recipient"); }
+        self.allowed_recipients.retain(|id| id != &recipient_id);
+    }
+
+    fn assert_owner(&self) {
+        if env::predecessor_account_id() != self.owner_id { env::panic_str("only the owner may call this method"); }
+    }
+
     pub fn get_policy(&self) -> PolicyView {
         PolicyView {
             owner_id: self.owner_id.clone(),
@@ -433,6 +486,89 @@ mod tests {
         assert_eq!(env::storage_read(b"presence_name:fixture"), Some(b"legacy-value".to_vec()));
         assert_eq!(env::storage_read(b"tapproved:migration:incompatible-state:v1"), Some(b"completed".to_vec()));
     }
+
+    fn admin_contract(predecessor: &str) -> Tapproved {
+        use near_sdk::test_utils::VMContextBuilder;
+        use near_sdk::testing_env;
+        testing_env!(VMContextBuilder::new().current_account_id(account("tapproved.testnet"))
+            .predecessor_account_id(account(predecessor)).build());
+        Tapproved::new(account("agent.testnet"), vec![7; 32], U128(10), U128(100), U128(1_000),
+            vec![account("merchant.testnet")], "testnet".to_string())
+    }
+
+    fn set_predecessor(predecessor: &str) {
+        use near_sdk::test_utils::VMContextBuilder;
+        use near_sdk::testing_env;
+        testing_env!(VMContextBuilder::new().current_account_id(account("tapproved.testnet"))
+            .predecessor_account_id(account(predecessor)).build());
+    }
+
+    #[test]
+    fn owner_can_pause_and_unpause() {
+        let mut c = admin_contract("owner.testnet");
+        c.pause(); assert!(c.paused);
+        c.unpause(); assert!(!c.paused);
+    }
+    #[test]
+    #[should_panic(expected = "only the owner may call this method")]
+    fn non_owner_cannot_pause() { let mut c = admin_contract("owner.testnet"); set_predecessor("attacker.testnet"); c.pause(); }
+    #[test]
+    #[should_panic(expected = "only the owner may call this method")]
+    fn non_owner_cannot_unpause() { let mut c = admin_contract("owner.testnet"); set_predecessor("attacker.testnet"); c.unpause(); }
+
+    #[test]
+    fn owner_can_cancel_pending_payment_and_release_reservation() {
+        let mut c = admin_contract("owner.testnet");
+        set_predecessor("agent.testnet");
+        let p = c.request_spend(account("merchant.testnet"), U128(50));
+        assert_eq!(c.get_daily_usage(0).reserved_yocto.0, 50);
+        set_predecessor("owner.testnet"); c.cancel_payment(p.id.0);
+        assert_eq!(c.active_payment_id, None);
+        assert_eq!(c.get_payment(p.id.0).unwrap().status, PaymentStatus::Expired);
+        assert_eq!(c.get_daily_usage(0).reserved_yocto.0, 0);
+    }
+    #[test]
+    #[should_panic(expected = "only the owner may call this method")]
+    fn non_owner_cannot_cancel_payment() {
+        let mut c = admin_contract("owner.testnet"); set_predecessor("agent.testnet");
+        let p = c.request_spend(account("merchant.testnet"), U128(50));
+        set_predecessor("attacker.testnet"); c.cancel_payment(p.id.0);
+    }
+
+    #[test]
+    fn owner_can_rotate_device_key() { let mut c = admin_contract("owner.testnet"); c.rotate_device_key(vec![9; 32]); assert_eq!(c.device_public_key, vec![9; 32]); }
+    #[test]
+    #[should_panic(expected = "only the owner may call this method")]
+    fn non_owner_cannot_rotate_device_key() { let mut c = admin_contract("owner.testnet"); set_predecessor("attacker.testnet"); c.rotate_device_key(vec![9; 32]); }
+    #[test]
+    #[should_panic(expected = "device_public_key must contain exactly 32")]
+    fn owner_cannot_rotate_to_invalid_key_length() { let mut c = admin_contract("owner.testnet"); c.rotate_device_key(vec![9; 31]); }
+
+    #[test]
+    fn owner_can_set_agent() { let mut c = admin_contract("owner.testnet"); c.set_agent(account("new-agent.testnet")); assert_eq!(c.agent_id, account("new-agent.testnet")); }
+    #[test]
+    #[should_panic(expected = "only the owner may call this method")]
+    fn non_owner_cannot_set_agent() { let mut c = admin_contract("owner.testnet"); set_predecessor("attacker.testnet"); c.set_agent(account("new-agent.testnet")); }
+
+    #[test]
+    fn owner_can_add_and_remove_allowed_recipient() {
+        let mut c = admin_contract("owner.testnet"); c.add_allowed_recipient(account("second-merchant.testnet"));
+        assert!(c.allowed_recipients.contains(&account("second-merchant.testnet")));
+        c.remove_allowed_recipient(account("second-merchant.testnet"));
+        assert!(!c.allowed_recipients.contains(&account("second-merchant.testnet")));
+    }
+    #[test]
+    #[should_panic(expected = "only the owner may call this method")]
+    fn non_owner_cannot_add_allowed_recipient() { let mut c = admin_contract("owner.testnet"); set_predecessor("attacker.testnet"); c.add_allowed_recipient(account("second-merchant.testnet")); }
+    #[test]
+    #[should_panic(expected = "only the owner may call this method")]
+    fn non_owner_cannot_remove_allowed_recipient() {
+        let mut c = admin_contract("owner.testnet"); c.add_allowed_recipient(account("second-merchant.testnet"));
+        set_predecessor("attacker.testnet"); c.remove_allowed_recipient(account("second-merchant.testnet"));
+    }
+    #[test]
+    #[should_panic(expected = "allowlist must contain at least one recipient")]
+    fn owner_cannot_remove_last_allowed_recipient() { let mut c = admin_contract("owner.testnet"); c.remove_allowed_recipient(account("merchant.testnet")); }
 
     #[test]
     fn payment_view_serializes_u64_values_as_exact_json_strings() {
