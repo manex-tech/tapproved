@@ -21,7 +21,7 @@ No JSON serialization, separators, null terminators for strings, floating-point 
 
 `protocol/v1-vector.json` is the normative deterministic interoperability fixture. It contains the input fields, expected encoded bytes, public key, and Ed25519 signature. The corresponding private seed is deliberately not committed. The fixture deliberately uses the deterministic test account `tapproved.testnet`; this is protocol test data, not the deployed contract ID. The live deployment and firmware/relay configuration use `manextech.testnet`.
 
-The Node test suite verifies both byte-for-byte encoding and Ed25519 signature verification, then confirms that changing the amount invalidates the signature. Firmware and contract tests must consume this same fixture.
+The Node test suite verifies byte-for-byte encoding and Ed25519 signature verification, then confirms that changing the amount invalidates the signature. Firmware CI compiles the same pure C++ encoder used by `main.cpp`, feeds it the fixture inputs and compares every output byte with `message_hex`; it also verifies rejection of leading-zero and out-of-range numeric fields. Contract tests consume the same fixture and verify its signature.
 
 ## Security requirements
 
