@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
-import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy } from "./near-rpc.js";
+import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy, getTransactionStatus } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
 import { createNearAgentSigner, createNearApprovalSigner } from "./near-signer.js";
 import { createSerialBridge } from "./serial.js";
@@ -86,6 +86,7 @@ export function createRelayServer(options = {}) {
   const processHardwareApproval = options.processHardwareApproval;
   const readActivePayment = options.getActivePayment ?? getActivePayment;
   const readPayment = options.getPayment ?? getPayment;
+  const readTransactionStatus = options.getTransactionStatus ?? getTransactionStatus;
 
   return createServer(async (request, response) => {
     let pathname;
@@ -211,7 +212,25 @@ export function createRelayServer(options = {}) {
       }
       try {
         const result = await processHardwareApproval();
-        send(response, 200, result);
+        if (result?.state === "submitted" && result.payment_id && result.transaction_hash &&
+            typeof idempotencyStore?.recordPaymentTransaction === "function") {
+          try {
+            await idempotencyStore.recordPaymentTransaction(
+              agentId,
+              result.payment_id,
+              "approval",
+              result.transaction_hash
+            );
+            send(response, 200, { ...result, transaction_tracking_available: true });
+          } catch {
+            send(response, 200, { ...result, transaction_tracking_available: false });
+          }
+        } else {
+          send(response, 200, {
+            ...result,
+            ...(result?.state === "submitted" ? { transaction_tracking_available: false } : {})
+          });
+        }
       } catch (error) {
         const code = typeof error?.code === "string" && /^[a-z0-9_]{1,64}$/.test(error.code)
           ? error.code
@@ -240,13 +259,45 @@ export function createRelayServer(options = {}) {
         if (!PAYMENT_STATUSES.has(payment.status)) throw new Error("unknown contract payment status");
         const approvalRequired = payment.status === "pending";
         const terminal = ["paid", "failed", "expired", "cancelled"].includes(payment.status);
-        send(response, 200, {
+        const responseBody = {
           network: "testnet",
           contract_id: DEFAULT_CONTRACT_ID,
           approval_required: approvalRequired,
           terminal,
           payment
-        });
+        };
+        if (typeof idempotencyStore?.getPaymentTransactions === "function") {
+          try {
+            const tracked = await idempotencyStore.getPaymentTransactions(agentId, paymentId);
+            const transactionRefs = [
+              ["request", tracked?.request_transaction_hash],
+              ["execution", tracked?.execution_transaction_hash],
+              ["approval", tracked?.approval_transaction_hash]
+            ];
+            const transactions = {};
+            await Promise.all(transactionRefs.map(async ([kind, hash]) => {
+              if (!hash) return;
+              try {
+                transactions[kind] = await readTransactionStatus(
+                  hash,
+                  DEFAULT_AGENT_ID,
+                  { env: { NEAR_CONTRACT_ID: DEFAULT_CONTRACT_ID } }
+                );
+              } catch {
+                transactions[kind] = {
+                  transaction_hash: hash,
+                  state: "unavailable"
+                };
+              }
+            }));
+            responseBody.transactions = transactions;
+            responseBody.transaction_tracking_available = true;
+          } catch {
+            responseBody.transactions = {};
+            responseBody.transaction_tracking_available = false;
+          }
+        }
+        send(response, 200, responseBody);
       } catch (error) {
         if (error instanceof RangeError || error instanceof TypeError) {
           send(response, 400, { error: "invalid_payment_id" });
