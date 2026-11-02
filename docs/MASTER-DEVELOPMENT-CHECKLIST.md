@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last verified source revision:** `e8bfe427c5fcab71467eb73693079170d7ad9ec8` (2026-11-02)  
+**Last verified source revision:** `2466bca54d171d6f33bc1114ac62f5d7b4a469c5` (2026-11-02)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -30,7 +30,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 
 **C1 completed:** [Relay architecture and trust boundaries](RELAY-ARCHITECTURE.md) defines the agent, relay, signer, contract, serial bridge and ESP32 boundaries; API contract; secret configuration; lifecycle and failure invariants. This is a design baseline, not a claim that these components are implemented.
 
-`main` is at `e8bfe427c5fcab71467eb73693079170d7ad9ec8`. PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable idempotency; PR #30 added the restricted NEAR agent signer; PR #31 added automatic execution for contract-approved payments; PR #33 added pending-approval polling and contract-backed payment status reads. The signer code is merged, but live preflight remains blocked until the dedicated FunctionCall key is provisioned on `manex-agent.testnet`.
+`main` is at `2466bca54d171d6f33bc1114ac62f5d7b4a469c5`. PRs #27 and #29 delivered authenticated payment requests; PR #28 added durable idempotency; PR #30 added the restricted NEAR agent signer; PR #31 added automatic execution for contract-approved payments; PR #33 added pending-approval polling and contract-backed payment status reads. The signer code is merged, but live preflight remains blocked until the dedicated FunctionCall key is provisioned on `manex-agent.testnet`.
 
 ## Phase A: Repository consistency and documentation
 
@@ -71,7 +71,7 @@ B10 empirical callback-gas validation is deferred until the final deployment/tes
 - [x] **C4.** Submit contract transactions through a controlled signer flow. PR #30 verifies the live agent FunctionCall key is scoped to `manextech.testnet` and the exact approved method set; live key preflight still requires owner provisioning.
 - [x] **C5.** Execute automatically approved payments. PR #31 calls `execute_approved_spend` only when the contract returns `approved`, then reads the contract payment record and persists both transaction hashes. Pending payments are not auto-executed.
 - [x] **C6.** Track pending hardware approvals. PR #33 exposes the contract-derived pending approval context and authenticated `GET /v1/payments/:paymentId` lifecycle lookup. Node integration tests cover pending, active and terminal states, authentication, foreign-agent records, invalid IDs and RPC failures.
-- [ ] **C7.** Implement ESP32 serial communication.
+- [x] **C7.** Implement ESP32 serial communication. PR #35 adds bounded newline-delimited USB serial transport, one in-flight approval, timeout/disconnect handling, response-shape validation, and the ESP32 frame parser. CI run [41476447728](https://github.com/manex-tech/tapproved/actions/runs/41476447728) passed Node tests, Rust contract tests/Wasm build and ESP32 firmware build. Transport orchestration and contract signature submission remain C8.
 - [ ] **C8.** Submit hardware signatures to the contract.
 - [ ] **C9.** Track transaction and payment status.
 - [ ] **C10.** Monitor payment expiry.
