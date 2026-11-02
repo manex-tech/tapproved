@@ -19,6 +19,8 @@ Policy validation rejects invalid key length, invalid limit relationships, an em
 
 The owner can atomically update soft, hard and daily limits through `update_spending_limits`. The complete new policy is validated before any value is changed. A lower daily limit is rejected if it would fall below any retained day's committed spend plus outstanding reservations. The network identifier remains fixed.
 
+The owner can replace the registered 32-byte Ed25519 device public key with `rotate_device_key`. The method rejects non-owner callers and invalid key lengths. Rotation takes effect immediately: signatures from the previous device key are no longer accepted, while pending payment state is not automatically cancelled. Drain pending approvals before rotating. See [DEVICE-KEY-ROTATION.md](DEVICE-KEY-ROTATION.md) for the operator sequence. No live rotation is implied by these source-level tests.
+
 ## Request authorization
 
 Only the registered agent may call `request_spend`. The contract rejects requests when paused, when another payment is active, for zero amounts, above the hard limit, or to a recipient outside the allowlist.
