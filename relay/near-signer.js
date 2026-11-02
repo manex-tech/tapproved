@@ -8,6 +8,9 @@ export const CANONICAL_AGENT_ID = "manex-agent.testnet";
 export const AGENT_ALLOWED_METHODS = Object.freeze(["request_spend", "execute_approved_spend", "approve_spend"]);
 const LEGACY_AGENT_METHODS = Object.freeze(["request_spend", "execute_approved_spend"]);
 export const MAX_SIGNER_ALLOWANCE_YOCTO = 5n * 10n ** 24n;
+const REQUEST_GAS_TGAS = "30";
+// Settlement calls schedule a 30 TGas callback and need additional execution headroom.
+const SETTLEMENT_GAS_TGAS = "60";
 
 export class SignerConfigurationError extends Error {
   constructor(message) {
@@ -170,7 +173,7 @@ export async function createNearAgentSigner(options = {}) {
         payment_id: Number(numericId),
         signature: Array.from(Buffer.from(signatureHex, "hex"))
       },
-      gas: sdk.teraToGas("30"),
+      gas: sdk.teraToGas(SETTLEMENT_GAS_TGAS),
       deposit: 0n,
       waitUntil: "FINAL"
     });
@@ -218,7 +221,7 @@ export async function createNearAgentSigner(options = {}) {
       contractId: config.contractId,
       methodName: "execute_approved_spend",
       args: { payment_id: Number(paymentId) },
-      gas: sdk.teraToGas("30"),
+      gas: sdk.teraToGas(SETTLEMENT_GAS_TGAS),
       deposit: 0n,
       waitUntil: "FINAL"
     });
