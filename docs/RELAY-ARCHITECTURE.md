@@ -52,7 +52,8 @@ The first implementation may use Node.js built-ins and small explicit interfaces
 Initial authenticated routes:
 
 - `POST /v1/payment-requests`: create or retrieve an idempotent payment request.
-- `GET /v1/pending-approvals`: authenticated, contract-backed poll for the single active payment when its status is exactly `pending`; returns the canonical contract/network and the stored payment fields needed by the upcoming serial bridge. Returns `payment: null` for absent, approved or processing payments.
+- `GET /v1/pending-approvals`: implemented authenticated, contract-backed poll for the single active payment when its status is exactly `pending`; returns `payment` plus a device-ready `approval_request` containing canonical contract/network, payment ID, recipient, exact amount, nonce and expiry. Returns null approval fields for absent, approved or processing payments.
+- `GET /v1/payments/:paymentId`: implemented authenticated contract-backed lookup for one payment. Returns the lifecycle status, an `approval_required` flag for `pending`, and a `terminal` flag for `paid`, `failed`, `expired` or `cancelled`. Foreign-agent and missing records return 404; invalid numeric IDs return 400.
 - `GET /v1/payments/:paymentId`: return contract-derived payment status.
 - `GET /v1/payments/:paymentId/events`: expose bounded lifecycle events or polling cursor.
 - `GET /health`: process health only; must not expose credentials or private operational details.
