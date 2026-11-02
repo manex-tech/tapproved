@@ -8,6 +8,7 @@
 #include "button_approval.h"
 #include "approval_protocol.h"
 #include "request_id_guard.h"
+#include "zeroizing_buffer.h"
 
 namespace {
 constexpr uint8_t APPROVAL_BUTTON_PIN = 25;
@@ -151,9 +152,9 @@ void handleRequest(const char* line) {
     printEnvelopeError(request_id, "duplicate_request");
     return;
   }
-  uint8_t message[MAX_MESSAGE_SIZE];
+  ZeroizingBuffer<MAX_MESSAGE_SIZE> message;
   size_t message_len = 0;
-  if (!encodeApproval(doc, message, message_len)) {
+  if (!encodeApproval(doc, message.data(), message_len)) {
     printEnvelopeError(request_id, "invalid_or_wrong_network_request");
     return;
   }
@@ -162,7 +163,6 @@ void handleRequest(const char* line) {
   char amount_display[64];
   if (!formatYoctoNear(amount_yocto, amount_display, sizeof(amount_display))) {
     printEnvelopeError(request_id, "invalid_amount_display");
-    memset(message, 0, sizeof(message));
     return;
   }
 
@@ -183,15 +183,13 @@ void handleRequest(const char* line) {
     return;
   }
 
-  uint8_t signature[64];
-  Ed25519::sign(signature, private_seed, public_key, message, message_len);
+  ZeroizingBuffer<64> signature;
+  Ed25519::sign(signature.data(), private_seed, public_key, message.data(), message_len);
   Serial.printf("{\"frame_version\":1,\"request_id\":\"%s\",\"status\":\"signed\",\"public_key_hex\":\"", request_id);
   printHex(public_key, sizeof(public_key));
   Serial.print("\",\"signature_hex\":\"");
-  printHex(signature, sizeof(signature));
+  printHex(signature.data(), signature.size());
   Serial.println("\"}");
-  memset(signature, 0, sizeof(signature));
-  memset(message, 0, sizeof(message));
 }
 } // namespace
 
