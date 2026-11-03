@@ -145,18 +145,18 @@ C12 is complete and merged in [PR #43](https://github.com/manex-tech/tapproved/p
 
 ## Phase G: Dashboard
 
-- [ ] **G1.** Choose frontend architecture.
-- [ ] **G2.** Implement wallet/contract connection.
-- [ ] **G3.** Display treasury balance.
-- [ ] **G4.** Display and manage spending policies.
-- [ ] **G5.** Display registered agent information.
-- [ ] **G6.** Display hardware/device status.
-- [ ] **G7.** Display payment history.
-- [ ] **G8.** Display pending approvals.
-- [ ] **G9.** Display Paid, Failed, Expired and Cancelled states.
-- [ ] **G10.** Implement owner management controls.
-- [ ] **G11.** Display transaction status and actionable errors.
-- [ ] **G12.** Add Testnet integration tests.
+- [x] **G1.** Choose frontend architecture. Implemented clean, responsive, dark-mode single-page monitoring interface in `dashboard/index.html` and `dashboard/styles.css` with direct NEAR Testnet JSON-RPC and Relay HTTP integration.
+- [x] **G2.** Implement wallet/contract connection. Implemented `dashboard/dashboard-service.js` with direct JSON-RPC querying `https://rpc.testnet.near.org` on `manextech.testnet`.
+- [x] **G3.** Display treasury balance. Implemented real-time display of native NEAR total balance, available balance, storage staking reservation, and byte usage.
+- [x] **G4.** Display and manage spending policies. Implemented display of soft, hard, and daily limits with visual daily quota progress bar and allowlist badges.
+- [x] **G5.** Display registered agent information. Displays agent ID (`manex-agent.testnet`), active permissions, and payment attribution.
+- [x] **G6.** Display hardware/device status. Displays ESP32 status, Ed25519 public key, and GPIO25 physical button indicator.
+- [x] **G7.** Display payment history. Implemented table of all past payments with ID, recipient, amount, timestamp, status, and nonce.
+- [x] **G8.** Display pending approvals. Implemented live pulsing alert banner when an active payment has `status: pending`, showing amount, recipient, and countdown timer until expiration.
+- [x] **G9.** Display Paid, Failed, Expired and Cancelled states. Color-coded status badges for all seven terminal/intermediate states with hardware-signed indicator tags.
+- [x] **G10.** Implement owner management controls. Interactive administrative command generator for pause/unpause, adding/removing allowlist recipients, and updating limits with signed `near-cli-rs` command syntax.
+- [x] **G11.** Display transaction status and actionable errors. Interactive Transaction Explorer tab querying NEAR RPC by hash with full receipt outcomes.
+- [x] **G12.** Add Testnet integration tests. Implemented `dashboard/dashboard.test.js` validating yoctoNEAR formatting, JSON-RPC decoding, command generators, and HTML element integrity (6 tests, all passing).
 
 ## Phase H: Security and reliability
 

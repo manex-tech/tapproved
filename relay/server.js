@@ -1,7 +1,9 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { createStructuredLogger, sanitizeError } from "./structured-logger.js";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
 import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy, getTransactionStatus, isValidTransactionHash, TransactionNotFoundError, TransactionQueryValidationError, TransactionWaitTimeoutError } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
 import { createNearAgentSigner, createNearApprovalSigner, createNearExpirySigner } from "./near-signer.js";
@@ -85,6 +87,22 @@ function send(response, status, payload, extraHeaders = {}) {
   response.end(JSON.stringify(payload));
 }
 
+const DASHBOARD_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../dashboard");
+
+async function serveDashboardFile(response, filename, contentType) {
+  try {
+    const fullPath = resolve(DASHBOARD_DIR, filename);
+    const content = await readFile(fullPath);
+    response.writeHead(200, {
+      "content-type": contentType,
+      "cache-control": "no-cache"
+    });
+    response.end(content);
+  } catch {
+    send(response, 404, { error: "not_found" });
+  }
+}
+
 async function readJsonBody(request) {
   const contentType = request.headers["content-type"]?.split(";")[0].trim().toLowerCase();
   if (contentType !== "application/json") {
@@ -147,6 +165,7 @@ export function createRelayServer(options = {}) {
     response.once("finish", () => {
       const rawPath = (request.url ?? "/").split("?")[0];
       const staticRoutes = new Set([
+        "/", "/dashboard", "/dashboard/styles.css", "/dashboard/app.js", "/dashboard/dashboard-service.js",
         "/health", "/v1/payment-requests", "/v1/pending-approvals",
         "/v1/approvals/process", "/v1/recovery/reconcile", "/policy", "/active-payment"
       ]);
@@ -178,6 +197,25 @@ export function createRelayServer(options = {}) {
     if (request.method === "GET" && pathname === "/health") {
       send(response, 200, { name: "tapproved", status: "ok", network: "testnet" });
       return;
+    }
+
+    if (request.method === "GET") {
+      if (pathname === "/" || pathname === "/dashboard" || pathname === "/dashboard/index.html") {
+        await serveDashboardFile(response, "index.html", "text/html; charset=utf-8");
+        return;
+      }
+      if (pathname === "/dashboard/styles.css" || pathname === "/styles.css") {
+        await serveDashboardFile(response, "styles.css", "text/css; charset=utf-8");
+        return;
+      }
+      if (pathname === "/dashboard/app.js" || pathname === "/app.js") {
+        await serveDashboardFile(response, "app.js", "application/javascript; charset=utf-8");
+        return;
+      }
+      if (pathname === "/dashboard/dashboard-service.js" || pathname === "/dashboard-service.js") {
+        await serveDashboardFile(response, "dashboard-service.js", "application/javascript; charset=utf-8");
+        return;
+      }
     }
 
     if (request.method === "POST" && pathname === "/v1/payment-requests") {

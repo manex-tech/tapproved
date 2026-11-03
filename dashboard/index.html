@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tapproved | Hardware-Backed Spending Authorization</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="logo-group">
+        <div class="logo-badge">TAPPROVED</div>
+        <div class="network-badge">
+          <span class="network-dot"></span>
+          NEAR Testnet (manextech.testnet)
+        </div>
+      </div>
+      <div class="header-actions">
+        <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 0; cursor: pointer;">
+          <input type="checkbox" id="auto-refresh-toggle" checked style="width: auto; margin: 0;">
+          Auto-refresh (5s)
+        </label>
+        <button id="refresh-btn" class="btn">Refresh Now</button>
+        <span style="font-size: 11px; color: var(--text-muted);">Updated: <span id="last-updated">-</span></span>
+      </div>
+    </header>
+
+    <!-- Alert Banner (Pending Approval) -->
+    <div id="pending-approval-alert" class="alert-banner">
+      <div class="alert-content">
+        <h4>Hardware Authorization Required</h4>
+        <p id="pending-approval-text">An agent payment requires physical confirmation on the ESP32.</p>
+        <p id="pending-time-remaining" style="color: var(--color-warning); font-weight: 600; margin-top: 4px;">-</p>
+      </div>
+      <div class="alert-action">
+        <span class="badge badge-pending" style="font-size: 13px; padding: 6px 12px;">WAITING FOR GPIO25</span>
+      </div>
+    </div>
+
+    <!-- Metrics Grid -->
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-title">Treasury Balance</div>
+        <div class="metric-value" id="treasury-balance">-- NEAR</div>
+        <div class="metric-sub" id="available-balance">-- available</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-title">Today's Daily Spend</div>
+        <div class="metric-value" id="daily-spent">-- NEAR</div>
+        <div class="metric-sub" id="daily-limit">Limit: -- NEAR</div>
+        <div class="progress-bar-container">
+          <div id="daily-progress-bar" class="progress-bar"></div>
+        </div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-title">Active Payment</div>
+        <div class="metric-value" id="active-payment-status" style="font-size: 20px;">None (Idle)</div>
+        <div class="metric-sub">Single in-flight concurrency lock</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-title">ESP32 Hardware Key</div>
+        <div class="metric-value" id="device-status" style="font-size: 20px; color: var(--color-success);">Online</div>
+        <div class="metric-sub">Ed25519 • GPIO25 Button Gated</div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" data-target="tab-payments">Payment History</button>
+      <button class="tab-btn" data-target="tab-policy">Policy & Storage</button>
+      <button class="tab-btn" data-target="tab-owner">Owner Controls</button>
+      <button class="tab-btn" data-target="tab-explorer">Transaction Explorer</button>
+    </div>
+
+    <!-- Tab: Payment History -->
+    <div id="tab-payments" class="tab-section active">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Treasury Payments & Requests</div>
+        </div>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Recipient</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Agent</th>
+                <th>Created At</th>
+                <th>Nonce</th>
+              </tr>
+            </thead>
+            <tbody id="payments-table-body">
+              <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-muted);">Loading payment records...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Policy & Storage -->
+    <div id="tab-policy" class="tab-section">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px;">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Spending Policy Configuration</div>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Owner Account</span>
+            <span class="info-value" id="policy-owner">--</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Registered Agent</span>
+            <span class="info-value" id="policy-agent">--</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Soft Limit (Auto-approved)</span>
+            <span class="info-value" id="policy-soft-limit">--</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Hard Limit (Max Per Payment)</span>
+            <span class="info-value" id="policy-hard-limit">--</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Daily Limit</span>
+            <span class="info-value" id="policy-daily-limit">--</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Pause State</span>
+            <span class="info-value" id="policy-paused">--</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Allowlist & Storage Staking</div>
+          </div>
+          <div style="margin-bottom: 16px;">
+            <label>Allowed Recipient Accounts</label>
+            <div id="policy-recipients-list" style="margin-top: 6px;"></div>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Storage Staked Balance</span>
+            <span class="info-value" id="storage-staked">--</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Contract Storage Used</span>
+            <span class="info-value" id="storage-usage">--</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Owner Controls -->
+    <div id="tab-owner" class="tab-section">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Owner Administration & Command Generator</div>
+        </div>
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
+          Generate signed NEAR CLI commands to manage the canonical treasury. All state transitions are signed directly with the owner's testnet credentials.
+        </p>
+
+        <div class="form-group">
+          <label>Select Administrative Action</label>
+          <select id="owner-action-select">
+            <option value="pause">Pause Treasury</option>
+            <option value="unpause">Unpause Treasury</option>
+            <option value="add_recipient">Add Allowed Recipient</option>
+            <option value="remove_recipient">Remove Allowed Recipient</option>
+            <option value="update_limits">Update Spending Limits</option>
+          </select>
+        </div>
+
+        <div id="owner-action-inputs" class="form-group"></div>
+
+        <div class="form-group" style="margin-top: 18px;">
+          <label>Executable NEAR CLI Command</label>
+          <pre id="generated-command-block" class="code-block"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Transaction Explorer -->
+    <div id="tab-explorer" class="tab-section">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Transaction Receipt Verification</div>
+        </div>
+        <div class="form-group">
+          <label>Enter NEAR Transaction Hash</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="tx-search-input" placeholder="e.g. 6FY3y24tZ21Yb8vgDsHkMQU8qqYCuo6ESeJoybLUTFUu" />
+            <button id="tx-search-btn" class="btn btn-primary" style="white-space: nowrap;">Query Status</button>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top: 16px;">
+          <label>RPC Execution Outcome</label>
+          <pre id="tx-result-block" class="code-block">Enter a transaction hash above to inspect execution receipts and finality.</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+      <p>Tapproved System v1.1.0 • Hardware-Backed Spending Approval for AI Agents on NEAR Testnet</p>
+      <p style="margin-top: 4px;">Contract: <code>manextech.testnet</code> • Agent: <code>manex-agent.testnet</code> • Hardware: ESP32-WROOM-32 (GPIO25)</p>
+    </footer>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
