@@ -248,7 +248,7 @@ test("blocks the wrong contract code and a non-legacy daily-usage ABI", async ()
       return { amount: "100", locked: "0", code_hash: "11111111111111111111111111111111", storage_usage: 0 };
     }
   });
-  const noCode = await collectTestnetPreflight({ rpc: wrongCode });
+  const noCode = await collectTestnetPreflight({ rpc: wrongCode, batchDelayMs: 0 });
   assert.ok(noCode.blockers.some((item) => item.code === "contract-code-missing"));
 
   const newAbi = makeRpc({
@@ -256,6 +256,6 @@ test("blocks the wrong contract code and a non-legacy daily-usage ABI", async ()
       return { utc_day: String(day), spent_yocto: "0", reserved_yocto: "0", used_yocto: "0", daily_limit_yocto: "5000" };
     }
   });
-  const notLegacy = await collectTestnetPreflight({ rpc: newAbi });
+  const notLegacy = await collectTestnetPreflight({ rpc: newAbi, batchDelayMs: 0 });
   assert.ok(notLegacy.blockers.some((item) => item.code === "legacy-daily-usage-read-failed"));
 });
