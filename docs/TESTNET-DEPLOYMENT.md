@@ -46,6 +46,62 @@ Use this sequence for the pre-keyed Vec-based deployment on `manextech.testnet`:
 
 The migration is atomic at the NEAR receipt level. If the migration call fails, its state writes roll back; do not send ordinary application calls against the upgraded code until the migration succeeds or the previous Wasm has been restored. Keep the prior Wasm artifact available for rollback. The migration method is intentionally one-time and the marker is written by both `new` and `migrate`.
 
+## Same-account command sequence (near-cli-rs)
+
+Run these commands from a local terminal where `near-cli-rs` is installed and the `manextech.testnet` account is available in the OS keychain. Do not paste or export its private key into a repository, CI job, chat or project `.env`.
+
+1. Download a rollback copy of the currently deployed Wasm and inspect the deployed code hash:
+
+   ```powershell
+   near contract download-wasm manextech.testnet save-to-file .\manextech-before-tapproved-migration.wasm network-config testnet now
+   near contract inspect manextech.testnet network-config testnet now
+   Get-FileHash .\manextech-before-tapproved-migration.wasm -Algorithm SHA256
+   ```
+
+   Confirm the inspected code hash matches the preflight snapshot's `2fHedtF9t2M2Mjza8vBX3yaVeZ7gTzCmQP75WKhrBhSy` before proceeding. Keep the downloaded rollback Wasm unchanged.
+
+2. Extract `tapproved_contract.wasm` from the deployment bundle and verify its SHA-256 is `2866c2491b6263c86b8bfae1bf4734e69c0a849c83dbc5c4326bac0cf23aec41`. Then upgrade code on the existing account, with no initializer:
+
+   ```powershell
+   near contract deploy manextech.testnet use-file .\tapproved_contract.wasm network-config testnet sign-with-keychain send
+   ```
+
+   Do not add `with-init-call`; specifically, do not call `new`.
+
+3. Immediately call the one-time private migration, signed by the contract account itself:
+
+   ```powershell
+   near contract call-function as-transaction manextech.testnet migrate json-args '{}' prepaid-gas '100 Tgas' attached-deposit '0 NEAR' sign-as manextech.testnet network-config testnet sign-with-keychain send
+   ```
+
+   This call must be signed as `manextech.testnet`; a signer with a different account ID cannot pass the private-method check. Record both the deployment and migration transaction hashes and require successful final execution before running any ordinary contract views.
+
+4. Verify the new state:
+
+   ```powershell
+   near contract call-function as-read-only manextech.testnet get_policy json-args '{}' network-config testnet now
+   near contract call-function as-read-only manextech.testnet get_active_payment json-args '{}' network-config testnet now
+   near contract call-function as-read-only manextech.testnet get_payment json-args '{"payment_id":1}' network-config testnet now
+   near contract call-function as-read-only manextech.testnet get_payment json-args '{"payment_id":2}' network-config testnet now
+   near contract call-function as-read-only manextech.testnet get_payment json-args '{"payment_id":3}' network-config testnet now
+   near contract call-function as-read-only manextech.testnet get_daily_usage json-args '{"utc_day":20758}' network-config testnet now
+   near contract call-function as-read-only manextech.testnet get_daily_usage json-args '{"utc_day":20760}' network-config testnet now
+   ```
+
+   Compare the owner, agent, 32-byte device key, limits, allowlist, pause state, next payment ID, statuses and payment records with the saved preflight. UTC day `20758` must show 0.021 NEAR spent, zero reserved and 0.021 NEAR used. The active payment must remain `null`. The current day bucket must show zero usage unless a new approved request has occurred (relay traffic should still be stopped).
+
+5. Only after all checks pass, restart the relay. If the migration transaction fails, do not proceed to E2. Restore the old code using the saved backup if necessary:
+
+   ```powershell
+   near contract deploy manextech.testnet use-file .\manextech-before-tapproved-migration.wasm network-config testnet sign-with-keychain send
+   ```
+
+The commands above use the current near-cli-rs command structure documented by NEAR. See the [official NEAR CLI guide](https://github.com/near/near-cli-rs/blob/main/docs/GUIDE.en.md) for deploy, contract-call and Wasm-download syntax.
+
+## E2 recipient prerequisite
+
+The live preflight recorded the current allowlist as `["manextech.testnet"]`. This is sufficient for migration but does not authorize an external merchant. Before the automatic-payment demonstration, the owner must add a recipient account controlled by the project to the allowlist, verify it appears in `get_policy`, and then choose an amount no greater than the live soft limit (currently 0.01 NEAR) and within the remaining daily limit. Do not use the illustrative `merchant.testnet` value from `.env.example` unless it is actually added to the live allowlist and controlled for the test.
+
 ## Verification checklist for a future redeployment
 
 Before any future deployment or account change:
