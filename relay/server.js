@@ -166,7 +166,7 @@ export function createRelayServer(options = {}) {
       const rawPath = (request.url ?? "/").split("?")[0];
       const staticRoutes = new Set([
         "/", "/dashboard", "/dashboard/styles.css", "/dashboard/app.js", "/dashboard/dashboard-service.js",
-        "/health", "/v1/payment-requests", "/v1/pending-approvals",
+        "/health", "/v1/hardware-status", "/v1/payment-requests", "/v1/pending-approvals",
         "/v1/approvals/process", "/v1/recovery/reconcile", "/policy", "/active-payment"
       ]);
       const route = staticRoutes.has(rawPath) ? rawPath
@@ -196,6 +196,27 @@ export function createRelayServer(options = {}) {
 
     if (request.method === "GET" && pathname === "/health") {
       send(response, 200, { name: "tapproved", status: "ok", network: "testnet" });
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/v1/hardware-status") {
+      let ports = [];
+      try {
+        const { SerialPort } = await import("serialport");
+        ports = await SerialPort.list();
+      } catch {
+        ports = [];
+      }
+      const configuredPort = process.env.SERIAL_PORT || null;
+      const isConnected = configuredPort ? ports.some((p) => (p.path || "").toLowerCase() === configuredPort.toLowerCase()) : false;
+      send(response, 200, {
+        configured_port: configuredPort,
+        connected: isConnected,
+        available_ports: ports.map((p) => ({ path: p.path, manufacturer: p.manufacturer || "Generic" })),
+        baud_rate: Number(process.env.SERIAL_BAUD_RATE || 115200),
+        button_gpio: "GPIO25",
+        contract_id: DEFAULT_CONTRACT_ID
+      });
       return;
     }
 

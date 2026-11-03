@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tapproved | Hardware-Backed Spending Authorization</title>
+  <title>Tapproved | Hardware-Backed Spending Authorization for AI Agents</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -11,44 +11,81 @@
     <!-- Header -->
     <header>
       <div class="logo-group">
-        <div class="logo-badge">TAPPROVED</div>
+        <div class="logo-badge">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          TAPPROVED
+        </div>
         <div class="network-badge">
           <span class="network-dot"></span>
-          NEAR Testnet (manextech.testnet)
+          NEAR Testnet
+        </div>
+        <div class="chip">
+          Contract: <code id="header-contract-id">manextech.testnet</code>
+        </div>
+        <div class="chip">
+          Agent: <code id="header-agent-id">manex-agent.testnet</code>
         </div>
       </div>
       <div class="header-actions">
-        <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 0; cursor: pointer;">
+        <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 0; cursor: pointer; color: var(--text-muted);">
           <input type="checkbox" id="auto-refresh-toggle" checked style="width: auto; margin: 0;">
-          Auto-refresh (5s)
+          Live Sync (5s)
         </label>
-        <button id="refresh-btn" class="btn">Refresh Now</button>
-        <span style="font-size: 11px; color: var(--text-muted);">Updated: <span id="last-updated">-</span></span>
+        <button id="refresh-btn" class="btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          Sync Now
+        </button>
+        <span style="font-size: 11px; color: var(--text-dim);">Synced: <span id="last-updated" style="font-family: var(--font-mono); color: var(--text-muted);">-</span></span>
       </div>
     </header>
 
     <!-- Alert Banner (Pending Approval) -->
     <div id="pending-approval-alert" class="alert-banner">
       <div class="alert-content">
-        <h4>Hardware Authorization Required</h4>
+        <h4>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          Hardware Authorization Required (High-Value Spend)
+        </h4>
         <p id="pending-approval-text">An agent payment requires physical confirmation on the ESP32.</p>
-        <p id="pending-time-remaining" style="color: var(--color-warning); font-weight: 600; margin-top: 4px;">-</p>
+        <p id="pending-time-remaining" style="color: var(--color-warning); font-weight: 600; font-family: var(--font-mono); margin-top: 4px;">-</p>
       </div>
       <div class="alert-action">
-        <span class="badge badge-pending" style="font-size: 13px; padding: 6px 12px;">WAITING FOR GPIO25</span>
+        <span class="badge badge-pending" style="font-size: 12px; padding: 6px 12px;">WAITING FOR GPIO25</span>
+        <button id="btn-simulate-approval" class="btn btn-warning btn-sm" title="Simulates the GPIO25 physical button press for remote judges">
+          ⚡ Simulate Button Press
+        </button>
       </div>
     </div>
 
     <!-- Metrics Grid -->
     <div class="metrics-grid">
+      <!-- 1. Treasury Balance -->
       <div class="metric-card">
-        <div class="metric-title">Treasury Balance</div>
+        <div class="metric-title">
+          <span>Treasury Balance</span>
+          <span class="chip" style="font-size: 10px; padding: 2px 6px;">NEAR</span>
+        </div>
         <div class="metric-value" id="treasury-balance">-- NEAR</div>
         <div class="metric-sub" id="available-balance">-- available</div>
       </div>
 
+      <!-- 2. Daily Spend Quota -->
       <div class="metric-card">
-        <div class="metric-title">Today's Daily Spend</div>
+        <div class="metric-title">
+          <span>Daily Quota Spend</span>
+          <span id="daily-quota-pct" class="badge badge-paid">0%</span>
+        </div>
         <div class="metric-value" id="daily-spent">-- NEAR</div>
         <div class="metric-sub" id="daily-limit">Limit: -- NEAR</div>
         <div class="progress-bar-container">
@@ -56,49 +93,70 @@
         </div>
       </div>
 
+      <!-- 3. Active In-Flight Payment -->
       <div class="metric-card">
-        <div class="metric-title">Active Payment</div>
+        <div class="metric-title">
+          <span>Active In-Flight Lock</span>
+          <span class="badge badge-approved" id="active-lock-badge">Concurrency Lock</span>
+        </div>
         <div class="metric-value" id="active-payment-status" style="font-size: 20px;">None (Idle)</div>
-        <div class="metric-sub">Single in-flight concurrency lock</div>
+        <div class="metric-sub" id="active-payment-sub">Safe state: no active spend pending</div>
       </div>
 
+      <!-- 4. ESP32 Hardware Status -->
       <div class="metric-card">
-        <div class="metric-title">ESP32 Hardware Key</div>
-        <div class="metric-value" id="device-status" style="font-size: 20px; color: var(--color-success);">Online</div>
-        <div class="metric-sub">Ed25519 • GPIO25 Button Gated</div>
+        <div class="metric-title">
+          <span>ESP32 Hardware</span>
+          <span id="device-port-badge" class="badge">COM11</span>
+        </div>
+        <div class="metric-value" id="device-status" style="font-size: 18px;">Detecting...</div>
+        <div class="metric-sub" id="device-subtext">Ed25519 • GPIO25 Button Gated</div>
       </div>
     </div>
 
     <!-- Navigation Tabs -->
     <div class="tabs">
       <button class="tab-btn active" data-target="tab-payments">Payment History</button>
-      <button class="tab-btn" data-target="tab-policy">Policy & Storage</button>
-      <button class="tab-btn" data-target="tab-owner">Owner Controls</button>
-      <button class="tab-btn" data-target="tab-explorer">Transaction Explorer</button>
+      <button class="tab-btn" data-target="tab-playground">AI Agent Playground</button>
+      <button class="tab-btn" data-target="tab-policy">Policy & Security</button>
+      <button class="tab-btn" data-target="tab-owner">Owner Governance</button>
+      <button class="tab-btn" data-target="tab-explorer">Receipt Explorer</button>
     </div>
 
-    <!-- Tab: Payment History -->
+    <!-- Tab 1: Payment History -->
     <div id="tab-payments" class="tab-section active">
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Treasury Payments & Requests</div>
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="8" y1="6" x2="21" y2="6"></line>
+              <line x1="8" y1="12" x2="21" y2="12"></line>
+              <line x1="8" y1="18" x2="21" y2="18"></line>
+              <line x1="3" y1="6" x2="3.01" y2="6"></line>
+              <line x1="3" y1="12" x2="3.01" y2="12"></line>
+              <line x1="3" y1="18" x2="3.01" y2="18"></line>
+            </svg>
+            Treasury Payments & Authorization Records
+          </div>
+          <span style="font-size: 12px; color: var(--text-muted);">Verified on NEAR Testnet</span>
         </div>
         <div class="table-responsive">
           <table>
             <thead>
               <tr>
-                <th>ID</th>
+                <th>Payment ID</th>
                 <th>Recipient</th>
-                <th>Amount</th>
+                <th>Amount (NEAR)</th>
                 <th>Status</th>
-                <th>Agent</th>
-                <th>Created At</th>
+                <th>Agent Account</th>
+                <th>Created (UTC)</th>
                 <th>Nonce</th>
+                <th>Explorer</th>
               </tr>
             </thead>
             <tbody id="payments-table-body">
               <tr>
-                <td colspan="7" style="text-align: center; color: var(--text-muted);">Loading payment records...</td>
+                <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading payment records from NEAR Testnet...</td>
               </tr>
             </tbody>
           </table>
@@ -106,106 +164,227 @@
       </div>
     </div>
 
-    <!-- Tab: Policy & Storage -->
+    <!-- Tab 2: AI Agent Spend Playground (Judges Interactive Demo) -->
+    <div id="tab-playground" class="tab-section">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+            AI Agent Spend Simulation Playground
+          </div>
+          <span class="badge badge-paid">Interactive Judge Demo</span>
+        </div>
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 18px;">
+          Test the live authorization logic directly from this dashboard. Observe how the contract enforces policy rules, grants autonomous approvals, and gates high-value transfers behind hardware.
+        </p>
+
+        <div class="playground-grid">
+          <!-- Scenario 1: Routine Micropayment -->
+          <div class="scenario-card">
+            <div class="scenario-title">
+              <span>1. Routine Micropayment</span>
+              <span class="badge badge-paid">Autonomous</span>
+            </div>
+            <div class="scenario-desc">
+              Request <strong>0.001 NEAR</strong> to <code>manex-agent.testnet</code>. Satisfies soft limit (&le; 0.01 NEAR); approved and executed autonomously.
+            </div>
+            <button id="btn-test-routine" class="btn btn-primary" style="width: 100%;">
+              ⚡ Execute Routine Spend (0.001 NEAR)
+            </button>
+          </div>
+
+          <!-- Scenario 2: High-Value Spend -->
+          <div class="scenario-card">
+            <div class="scenario-title">
+              <span>2. Elevated Spend</span>
+              <span class="badge badge-pending">Hardware Gated</span>
+            </div>
+            <div class="scenario-desc">
+              Request <strong>0.05 NEAR</strong>. Exceeds soft limit; contract freezes the payment in <code>pending</code> awaiting ESP32 GPIO25 actuation.
+            </div>
+            <button id="btn-test-elevated" class="btn btn-warning" style="width: 100%;">
+              🔒 Request High-Value Spend (0.05 NEAR)
+            </button>
+          </div>
+
+          <!-- Scenario 3: Excessive Spend -->
+          <div class="scenario-card">
+            <div class="scenario-title">
+              <span>3. Excessive Spend Violation</span>
+              <span class="badge badge-failed">Policy Blocked</span>
+            </div>
+            <div class="scenario-desc">
+              Request <strong>100 NEAR</strong>. Exceeds daily/hard limit; smart contract rejects payment request upfront without moving funds.
+            </div>
+            <button id="btn-test-excessive" class="btn" style="width: 100%; border-color: rgba(239, 68, 68, 0.4); color: var(--color-danger);">
+              🛡️ Test Policy Violation (100 NEAR)
+            </button>
+          </div>
+        </div>
+
+        <div style="margin-top: 20px;">
+          <label>Agent Console Output & Transaction Receipt</label>
+          <pre id="playground-output-block" class="code-block">Ready. Click any test scenario above to execute and inspect live contract behavior.</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 3: Policy & Security -->
     <div id="tab-policy" class="tab-section">
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px;">
         <div class="card">
           <div class="card-header">
-            <div class="card-title">Spending Policy Configuration</div>
+            <div class="card-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+              On-Chain Spending Policy Configuration
+            </div>
           </div>
           <div class="info-row">
-            <span class="info-label">Owner Account</span>
+            <span class="info-label">Owner Account (Treasury Admin)</span>
             <span class="info-value" id="policy-owner">--</span>
           </div>
           <div class="info-row">
-            <span class="info-label">Registered Agent</span>
+            <span class="info-label">Registered AI Agent</span>
             <span class="info-value" id="policy-agent">--</span>
           </div>
           <div class="info-row">
-            <span class="info-label">Soft Limit (Auto-approved)</span>
-            <span class="info-value" id="policy-soft-limit">--</span>
+            <span class="info-label">Soft Limit (Auto-Approved Threshold)</span>
+            <span class="info-value" id="policy-soft-limit" style="color: var(--color-success);">--</span>
           </div>
           <div class="info-row">
-            <span class="info-label">Hard Limit (Max Per Payment)</span>
-            <span class="info-value" id="policy-hard-limit">--</span>
+            <span class="info-label">Hard Limit (Max Per Single Payment)</span>
+            <span class="info-value" id="policy-hard-limit" style="color: var(--color-warning);">--</span>
           </div>
           <div class="info-row">
-            <span class="info-label">Daily Limit</span>
+            <span class="info-label">Daily Spending Quota</span>
             <span class="info-value" id="policy-daily-limit">--</span>
           </div>
           <div class="info-row">
-            <span class="info-label">Pause State</span>
+            <span class="info-label">Emergency Circuit Breaker</span>
             <span class="info-value" id="policy-paused">--</span>
           </div>
         </div>
 
         <div class="card">
           <div class="card-header">
-            <div class="card-title">Allowlist & Storage Staking</div>
-          </div>
-          <div style="margin-bottom: 16px;">
-            <label>Allowed Recipient Accounts</label>
-            <div id="policy-recipients-list" style="margin-top: 6px;"></div>
+            <div class="card-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              </svg>
+              Hardware Security & Storage Telemetry
+            </div>
           </div>
           <div class="info-row">
-            <span class="info-label">Storage Staked Balance</span>
+            <span class="info-label">Hardware Device Key (On-Chain)</span>
+            <span class="info-value" style="font-size: 11px;" id="policy-device-key">A552...5BAD (Ed25519)</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Physical Button Pin</span>
+            <span class="info-value">GPIO25 (Active Low with Pull-Up)</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Configured Serial Port</span>
+            <span class="info-value" id="telemetry-serial-port">COM11 @ 115200 baud</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Contract Storage Staking</span>
             <span class="info-value" id="storage-staked">--</span>
           </div>
           <div class="info-row">
-            <span class="info-label">Contract Storage Used</span>
+            <span class="info-label">Storage Usage</span>
             <span class="info-value" id="storage-usage">--</span>
+          </div>
+          <div style="margin-top: 14px;">
+            <label>Allowlisted Recipient Accounts</label>
+            <div id="policy-recipients-list" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;"></div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Tab: Owner Controls -->
+    <!-- Tab 4: Owner Governance -->
     <div id="tab-owner" class="tab-section">
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Owner Administration & Command Generator</div>
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+            Owner Governance & NEAR CLI Command Generator
+          </div>
+          <span class="badge badge-approved">Safe Offline Tool</span>
         </div>
         <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
-          Generate signed NEAR CLI commands to manage the canonical treasury. All state transitions are signed directly with the owner's testnet credentials.
+          Generate signed NEAR CLI commands to configure treasury policies, add allowlist partners, or trigger the emergency circuit breaker. State changes are signed directly with the owner's testnet credentials.
         </p>
 
         <div class="form-group">
           <label>Select Administrative Action</label>
           <select id="owner-action-select">
-            <option value="pause">Pause Treasury</option>
-            <option value="unpause">Unpause Treasury</option>
-            <option value="add_recipient">Add Allowed Recipient</option>
-            <option value="remove_recipient">Remove Allowed Recipient</option>
-            <option value="update_limits">Update Spending Limits</option>
+            <option value="pause">Pause Treasury (Emergency Circuit Breaker)</option>
+            <option value="unpause">Unpause Treasury (Resume Operations)</option>
+            <option value="add_recipient">Add Allowed Recipient Account</option>
+            <option value="remove_recipient">Remove Allowed Recipient Account</option>
+            <option value="update_limits">Update Spending Policy Limits</option>
           </select>
         </div>
 
         <div id="owner-action-inputs" class="form-group"></div>
 
         <div class="form-group" style="margin-top: 18px;">
-          <label>Executable NEAR CLI Command</label>
+          <label>Executable NEAR CLI Command (Copy & Paste to Terminal)</label>
           <pre id="generated-command-block" class="code-block"></pre>
         </div>
       </div>
     </div>
 
-    <!-- Tab: Transaction Explorer -->
+    <!-- Tab 5: Receipt Explorer -->
     <div id="tab-explorer" class="tab-section">
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Transaction Receipt Verification</div>
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            Transaction Receipt & Finality Explorer
+          </div>
         </div>
         <div class="form-group">
-          <label>Enter NEAR Transaction Hash</label>
+          <label>Enter NEAR Testnet Transaction Hash</label>
           <div style="display: flex; gap: 8px;">
             <input type="text" id="tx-search-input" placeholder="e.g. 6FY3y24tZ21Yb8vgDsHkMQU8qqYCuo6ESeJoybLUTFUu" />
             <button id="tx-search-btn" class="btn btn-primary" style="white-space: nowrap;">Query Status</button>
           </div>
         </div>
         <div class="form-group" style="margin-top: 16px;">
-          <label>RPC Execution Outcome</label>
+          <label>JSON-RPC Execution Outcome & NEP-297 Events</label>
           <pre id="tx-result-block" class="code-block">Enter a transaction hash above to inspect execution receipts and finality.</pre>
         </div>
+      </div>
+    </div>
+
+    <!-- Live System Event Log Terminal -->
+    <div class="card" style="padding: 18px; margin-top: 24px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">
+          ⚡ Live Telemetry & Audit Stream
+        </span>
+        <span style="font-size: 11px; color: var(--color-success); display: inline-flex; align-items: center; gap: 4px;">
+          <span class="network-dot" style="width: 6px; height: 6px;"></span> Streaming
+        </span>
+      </div>
+      <div id="live-audit-terminal" class="terminal-widget">
+        <div class="terminal-line info">[INIT] Tapproved Real-Time Security Operations Dashboard initialized.</div>
+        <div class="terminal-line">[SYNC] Connected to NEAR Testnet RPC (https://rpc.testnet.near.org)</div>
+        <div class="terminal-line">[POLICY] Loaded canonical treasury contract: manextech.testnet</div>
       </div>
     </div>
 
