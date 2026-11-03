@@ -17,12 +17,12 @@
 - Distinguish complete, partially complete, blocked and not started work.
 - Do not claim a test passed without actual output or a successful CI result.
 - The user has authorized merging task PRs after source review and all required CI jobs pass. No deployment, initialization, on-chain transaction signing, payment, transfer, publishing, force-pushing or hackathon submission without explicit approval for that action.
-- Never deploy the current keyed 90-day daily-accounting storage layout over the existing `manextech.testnet` deployment. It requires a fresh account unless a separately designed and verified migration is implemented.
+- Do not call `new` or use ordinary contract methods between a Wasm upgrade and the one-time `migrate()` call on `manextech.testnet`. The B13 migration must pass its legacy-state tests and the deployment runbook's preflight before any live upgrade.
 - Keep testnet-only limitations explicit. Tapproved is not independently audited and is not production-ready.
 
 ## Current checkpoint
 
-**Active task: E2 exercise an automatically approved payment. This requires explicit approval before any live Testnet payment request or transfer.**
+**Active task: B13 add and verify the in-place migration from the deployed Vec-based daily accounting layout.** PR [#60](https://github.com/manex-tech/tapproved/pull/60) is open; do not merge or upgrade until the migration tests and all CI jobs pass. After B13 is merged, resume E2 with a controlled automatically approved Testnet payment.
 
 **E1 completed:** PR [#59](https://github.com/manex-tech/tapproved/pull/59) merged as `7e17c283b3686e110519cc76ac5047b08dd4dbd2`; CI run [41523732632](https://github.com/manex-tech/tapproved/actions/runs/41523732632) passed all three jobs. Added `examples/agent-request.js`, a minimal authenticated client for `POST /v1/payment-requests`, with strict environment validation, HTTPS enforcement for non-loopback URLs, caller-supplied stable idempotency keys, and no automatic retries. Added five client tests; Node CI passed 130 tests with zero failures. Added `npm run agent:request`, optional `.env.example` fields and a README quickstart. No live payment request, NEAR transaction, signing or hardware interaction was performed. The next E2 task requires explicit approval for a live Testnet payment/transfer.
 
@@ -68,6 +68,7 @@ C12 is complete and merged in [PR #43](https://github.com/manex-tech/tapproved/p
 - [ ] **B10.** Validate transfer callback gas and failure recovery empirically on Testnet. Code is merged: callback allocation increased to 30 TGas; unit test measures callback gas; owner-only `reconcile_processing_payment` supports carefully verified recovery. **Outstanding:** perform controlled Testnet transfer(s), inspect final transfer and callback receipts, and record actual callback gas burnt. Never reconcile an ambiguous transfer outcome.
 - [x] **B11.** Review and test NEP-297-style lifecycle, policy-update and reconciliation events.
 - [x] **B12.** Run contract tests, release Wasm build, checksum generation and full CI. Latest verified run: 75 Rust tests passed; Node, firmware and contract jobs succeeded.
+- [ ] **B13.** Add and verify an in-place migration from the deployed Vec-based daily accounting state to keyed 90-day accounting. Preserve policy, device key, payment history, active payment and legacy daily totals; require full migration tests and CI before using the migration on `manextech.testnet`.
 
 ### B10 safety requirements
 

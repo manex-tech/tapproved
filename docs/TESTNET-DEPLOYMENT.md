@@ -13,13 +13,13 @@ The project owner confirmed that the replacement Tapproved contract was deployed
 
 This record intentionally does not invent a transaction hash, block height, deployment timestamp or Wasm checksum. Those values are not recorded in the repository's current deployment evidence.
 
-The keyed 90-day daily-accounting implementation is a subsequent source change and is not deployed to this account. It changes the contract's Borsh state layout; deployment requires a separately approved fresh-account plan unless a verified migration is designed. The canonical account and its current ABI remain unchanged by this implementation branch.
+The canonical account is the replacement Tapproved deployment and uses the pre-keyed daily-accounting Borsh layout, where `daily_usage` is a `Vec<LegacyDailyUsageV1>`. The current source now includes a one-time `migrate()` initializer for this exact layout. It preserves the existing account, owner, agent, device public key, policy limits, allowlist, pause state, payment counters, active payment and payment `LookupMap` (prefix `p`). It converts legacy daily totals into separate committed spend and outstanding reservation records in a new `LookupMap` (prefix `d`). This is an in-place migration; a fresh account is not required for the documented pre-keyed deployment.
+
+The migration is deliberately fail-closed. It checks the active payment record and its daily reservation, rejects duplicate/future day records and inconsistent active state, preserves the active payment's reservation, and prunes only old daily records outside the 90-day window when they have no active reservation. A state-version marker prevents a second migration. The migration must be called once immediately after the Wasm upgrade, using the `manextech.testnet` account key because the method is private. Do not call `new` on the existing account. See the migration runbook below and [the contract migration notes](CONTRACT.md).
 
 ## Historical account-state incident
 
-An earlier attempt to use `manextech.testnet` encountered incompatible pre-existing `presence` state. Tapproved view calls failed to deserialize that state. The current repository does not contain an in-place migration entry point; the incompatible migration implementation was removed. The resolution confirmed by the project owner was deployment of a replacement contract followed by NEAR CLI testing.
-
-Do not follow older instructions that suggest calling a migration method. There is no such method in the current contract ABI.
+An earlier, superseded deployment attempt encountered incompatible pre-existing `presence` state. That historical layout is not the target of the current migration. The owner resolved that incident by deploying the replacement Tapproved contract to `manextech.testnet` and testing it with NEAR CLI. The new `migrate()` method applies only to the subsequent, documented change from the replacement deployment's Vec-based daily accounting to keyed daily accounting; it is not a migration from the old `presence` contract.
 
 ## Configuration locations
 
@@ -28,6 +28,20 @@ Do not follow older instructions that suggest calling a migration method. There 
 - `.env.example`: local environment-variable reference.
 
 The firmware rejects a request whose contract or network differs from its compiled constants. The relay accepts only HTTPS RPC URLs and testnet account IDs.
+
+## In-place upgrade and migration runbook
+
+Use this sequence for the pre-keyed Vec-based deployment on `manextech.testnet`:
+
+1. Stop the relay and all agent request sources. Do not permit a new payment request during the upgrade window.
+2. Record the current `get_policy`, `get_active_payment`, relevant `get_payment` records, `get_daily_usage` results and `get_storage_metrics`. Confirm the active payment and its daily reservation are consistent, and confirm the contract has enough available storage balance for the new keyed daily records. Do not attempt to reconcile an ambiguous `processing` payment.
+3. Build the release Wasm from the reviewed commit and record its SHA-256. Confirm that the artifact contains the `migrate` entry point and the expected state-version marker logic.
+4. Upgrade the code on the existing `manextech.testnet` account. Do not call `new`.
+5. Immediately call `migrate` once, signed by the `manextech.testnet` account key. The method is private and intentionally only accepts a call whose predecessor is the contract account itself.
+6. Verify `get_policy` is unchanged, `get_active_payment` and retained `get_payment` records are unchanged, and `get_daily_usage` returns the new spent/reserved/used/remaining fields with the expected values.
+7. Only after those checks pass, restore relay and agent traffic.
+
+The migration is atomic at the NEAR receipt level. If the migration call fails, its state writes roll back; do not send ordinary application calls against the upgraded code until the migration succeeds or the previous Wasm has been restored. Keep the prior Wasm artifact available for rollback. The migration method is intentionally one-time and the marker is written by both `new` and `migrate`.
 
 ## Verification checklist for a future redeployment
 
