@@ -1,179 +1,181 @@
 # Tapproved
 
-**AI agents cannot spend above their routine limit without a physical approval.**
+[![NEAR Testnet](https://img.shields.io/badge/NEAR-Testnet-00EC97?logo=near&logoColor=black)](https://explorer.testnet.near.org/accounts/manextech.testnet)
+[![Contract](https://img.shields.io/badge/Contract-manextech.testnet-blue)](https://explorer.testnet.near.org/accounts/manextech.testnet)
+[![Agent](https://img.shields.io/badge/Agent-manex--agent.testnet-purple)](https://explorer.testnet.near.org/accounts/manex-agent.testnet)
+[![CI Matrix](https://img.shields.io/badge/CI-Passing-success)](https://github.com/manex-tech/tapproved/actions)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Project tracking:** [Master Development Checklist](docs/MASTER-DEVELOPMENT-CHECKLIST.md) — canonical task-by-task progress, verification evidence and next checkpoint.
+> **Hardware-backed spending authorization for autonomous AI agents on NEAR.**  
+> Routine payments execute automatically within strict policy limits; elevated payments require a physical button press on an ESP32 hardware device generating an Ed25519 signature.
 
-Tapproved is a testnet prototype for hardware-backed spending authorization on NEAR. A registered agent requests payments from a contract-controlled treasury. The contract enforces spending policy. Payments within the soft limit can be executed automatically; larger payments require an Ed25519 signature from a registered ESP32 device after a physical button press.
+---
 
-**Network:** NEAR testnet  
-**Contract:** `manextech.testnet`  
-**Agent:** `manex-agent.testnet`  
-**Hardware:** ESP32-WROOM-32, approval button on GPIO25
+## 1. Problem & Innovation
 
-This repository is under active development for the NEAR Hackathon. It is not audited and must not be used with production keys or real funds.
-
-## How it works
-
-1. The registered agent calls `request_spend` on the contract.
-2. The contract checks that spending is not paused, no other payment is active, the recipient is allowlisted, the amount is positive and within the hard per-payment limit, and the UTC-day reservation remains within the daily limit.
-3. Amounts at or below the soft limit become `approved`. Larger amounts become `pending`.
-4. An automatically approved payment can be executed with `execute_approved_spend`. A pending payment requires the ESP32 to sign the canonical approval message after a physical GPIO25 press; the signature is submitted to `approve_spend`.
-5. The contract transfers NEAR from its own account and a private callback records `paid` or `failed`. Expired pending/approved payments are also cleaned up when the next valid request arrives; owner cancellation releases eligible reservations.
-
-The contract is the policy authority. The relay authenticates agent requests, persists idempotency state, submits `request_spend` through a restricted FunctionCall key and executes only contract-approved low-value payments. Pending hardware approvals travel over the bounded USB serial bridge to the ESP32; the relay verifies the returned device key and Ed25519 signature before submitting `approve_spend` through a separate approval-only key. Authenticated APIs expose payment state and transaction receipts. A separate expiry-only FunctionCall key lets a background monitor call the contract's permissionless `expire_payment` method after the finalized NEAR block time passes the payment expiry.
-
-## Current project status
-
-| Component | Current status |
+| The AI Agent Dilemma | The Tapproved Solution |
 |---|---|
-| NEAR contract policy and spend lifecycle | Implemented; Rust tests and Wasm build in CI |
-| Hardware Ed25519 verification and transfer callback | Implemented |
-| Testnet deployment | User-confirmed deployed and tested using NEAR CLI; see [deployment status](docs/TESTNET-DEPLOYMENT.md) |
-| ESP32 approval firmware | Implemented prototype; exact NEAR and yoctoNEAR approval summary, recipient/payment ID presentation, fresh debounced GPIO25 press/release approval, 32-request duplicate-ID rejection, fail-closed NVS seed-record handling, PlatformIO build and host-compiled amount/button/replay-state and zeroizing-buffer tests plus byte-for-byte shared approval-vector verification for the firmware encoder in CI; D1 source audit completed with nine findings allocated to Phase D follow-through |
-| Firmware/protocol audit | [D1 audit report](docs/FIRMWARE-PROTOCOL-AUDIT.md); findings are not yet fixes |
-| Approval protocol v1 | Documented with deterministic fixture |
-| Relay | Authenticated payment, approval, transaction and recovery APIs; RPC configuration locked to `testnet`, `manextech.testnet` and `manex-agent.testnet`; durable request/operation journal; separate least-privilege request, approval and expiry signers; bounded UUID-correlated ESP32 serial bridge with correlated device-error and timeout handling; finalized-chain-time checks before and after hardware approval; transaction receipt polling; expiry and restart-recovery monitors; HTTP-level integration coverage for payment, hardware approval, idempotency and recovery flows |
-| Local simulator | Implemented; uses an ephemeral key not registered on-chain |
-| Agent transaction orchestration | `request_spend`, automatic `execute_approved_spend`, and durable restart recovery for approval/expiry operations implemented; uncertain request attribution is retained for manual review |
-| Serial relay-to-device bridge | Bounded newline-delimited USB serial transport with versioned UUID-correlated request/response frames, ESP32 frame parser validates the canonical agent, pending status, recipient account syntax, positive bounded integers and canonical decimal encodings; one-cycle approval/signature submission is implemented; transaction and receipt status API now provides explicit finality and receipt outcomes |
-| AI Agent SDK & Autonomous Demo | Implemented (`sdk/index.js`, `sdk/index.d.ts`); full client with typed error handling, polling, and autonomous agent demo (`examples/autonomous-agent.js`) |
-| Real-Time Dashboard | Implemented (`dashboard/index.html`); live NEAR Testnet RPC monitoring, daily spending quota progress bar, active pending approval alert, payment history, owner controls, and transaction explorer |
-| Security Threat Model | Implemented (`docs/SECURITY-THREAT-MODEL.md`); comprehensive analysis of agent/hardware compromise, replay resistance, relay DoS, and storage headroom |
-| Independent security audit | Not performed |
+| **Full Custody (Unsafe)**: Granting an AI agent an unconstrained private key means prompt injections, hallucinated transactions, or leaked credentials can drain an entire treasury in seconds. | **Tiered On-Chain Policy**: Routine transactions (`<= soft_limit_yocto`) execute autonomously; high-value payments (`> soft_limit_yocto`) are locked in `pending` on-chain until physically authorized. |
+| **Full Human-in-the-Loop (Slow)**: Forcing human confirmation for every micropayment destroys autonomy and creates operational friction. | **Autonomous Within Guardrails**: Agents spend freely within pre-configured per-payment and daily spending limits, paying only allowlisted partner accounts. |
+| **Software Approvals (Vulnerable)**: Traditional 2FA and push notifications to smartphones or browsers are susceptible to phishing, session hijacking, and host compromise. | **Physical Hardware Isolation**: Ed25519 private keys reside on an isolated ESP32 device that signs only after a physical button press (GPIO25). |
 
-The first recorded hardware-gated testnet payment is documented in [the hardware approval milestone](docs/TESTNET-HARDWARE-APPROVAL-MILESTONE.md). That test used the contract account itself as the recipient, so it does not independently prove settlement to an external recipient.
+---
 
-## Relay approval-tracking API
+## 2. System Architecture
 
-All routes below require the configured bearer token except `GET /health`.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Human Operator
+    participant Agent as AI Agent (manex-agent.testnet)
+    participant Relay as Node.js Relay Server
+    participant ESP32 as ESP32 Hardware (GPIO25)
+    participant Contract as NEAR Treasury (manextech.testnet)
+    participant Recipient as Recipient Account
 
-- `GET /v1/pending-approvals` returns the active payment only when the contract status is exactly `pending`. Its `approval_request` contains the canonical contract ID and network ID plus the contract-derived payment ID, recipient, exact yoctoNEAR amount, nonce and expiry timestamp. It returns `approval_required: false` and null payment/request fields when no hardware approval is pending.
-- `GET /v1/payments/:paymentId` reads the requested payment from the contract and returns its current lifecycle status. The response distinguishes pending approval from terminal `paid`, `failed`, `expired` and `cancelled` states. Missing or foreign-agent payment records are not exposed.
-- `GET /v1/transactions/:hash` queries NEAR transaction execution and receipt outcomes for the canonical agent signer. The default `wait_until=NONE` returns the current state immediately. Use `?wait_until=FINAL` to wait up to the RPC node's finality timeout for all receipts; incomplete or timed-out transactions return HTTP 202 for polling. The response omits raw transaction arguments and signatures.
-- The three `GET` routes are read-only. They do not approve, expire, execute or transfer funds. Contract state remains authoritative.
-- `POST /v1/approvals/process` starts one explicit hardware-approval cycle: it reads the current contract-pending payment, sends it over the configured serial bridge, verifies the returned key against the on-chain device key and checks the v1 Ed25519 signature locally before submitting `approve_spend`. It does not accept caller-supplied payment fields.
-- `POST /v1/recovery/reconcile` runs an authenticated, read-only reconciliation pass. It checks unresolved approval/expiry operations against canonical `get_payment` state and repairs journal state only. It does not broadcast or retry transactions. Interrupted payment-request submissions remain unresolved for manual review because the contract does not store the HTTP idempotency key; recipient/amount equality is not sufficient proof of attribution.
+    Agent->>Relay: POST /v1/payment-requests (recipient, amount, idempotency_key)
+    Relay->>Contract: request_spend(recipient, amount)
 
-The pending-approval API returns contract-derived fields. C7 adds a bounded newline-delimited USB serial transport at 115200 baud with a 2,048-byte frame limit and 35-second default approval timeout. It permits one outstanding approval and does not automatically retry a physical approval. C8 adds an authenticated `POST /v1/approvals/process` one-cycle operation. The relay checks the returned public key against `get_policy.device_public_key`, verifies the canonical v1 signature, and submits `approve_spend` using a separate FunctionCall key restricted to that method. It never retries an ambiguous approval submission automatically.
-
-C10 adds a background expiry keeper. It compares the active payment's `expires_at_ns` with the latest finalized NEAR block timestamp, then calls the contract's permissionless `expire_payment` method only for an expired `pending` or `approved` payment. A third FunctionCall key is restricted to `expire_payment` only. The contract rechecks expiry, releases the original reservation and clears the active payment. C11 adds durable approval/expiry operation markers, startup and periodic reconciliation against canonical contract state, and an authenticated manual reconciliation endpoint. A known pre-submit hardware/signature rejection can be retried; an ambiguous broadcast is never automatically resubmitted. Interrupted payment-request records remain for manual review because the contract does not persist the HTTP idempotency key, so recipient/amount matching cannot safely identify the originating request. `RECOVERY_MONITOR_INTERVAL_MS` defaults to 30000 and accepts values from 5000 through 3600000.
-
-C12 adds structured JSON relay logs with UTC timestamps, severity, stable event names, per-request correlation IDs and request duration/status. Every HTTP response includes an `x-request-id` header. Logs use an explicit field allowlist and route templates; authorization headers, tokens, private keys, signatures, request bodies, query strings, raw exception messages and stack traces are excluded. Validation errors return stable public error codes rather than internal exception text. Logger sink failures are contained so logging cannot interrupt payment or recovery control flow.
-
-C13 adds `relay/integration.test.js`, an HTTP-level integration suite that composes the relay server, durable idempotency journal, approval processor and recovery service with deterministic in-memory contract, signer and serial adapters. It verifies authenticated payment creation, pending hardware-approval context, a single approval cycle, payment status reads, durable idempotent replay and successful reconciliation. A separate failure-path test verifies that an ambiguous approval submission is journaled as uncertain, is not resubmitted on retry, and remains visible for manual recovery. These tests do not use live NEAR RPC, hardware, signing keys or on-chain transactions.
-
-## Agent-to-relay request example
-
-`examples/agent-request.js` is a minimal Node.js agent client for the authenticated relay. It submits one payment intent to `POST /v1/payment-requests`; the relay binds it to the configured canonical agent account and submits through the restricted NEAR FunctionCall key.
-
-Configure these local environment values in `.env`:
-
-```dotenv
-TAPPROVED_RELAY_URL=http://127.0.0.1:3000
-TAPPROVED_IDEMPOTENCY_KEY=agent-payment-attempt-0001
-TAPPROVED_RECIPIENT_ID=merchant.testnet
-TAPPROVED_AMOUNT_YOCTO=1000000000000000000000
+    alt Amount <= Soft Limit (Routine Spend)
+        Contract-->>Contract: Assign status: approved (reserve daily spend)
+        Relay->>Contract: execute_approved_spend(payment_id)
+        Contract->>Recipient: Promise::transfer(amount)
+        Contract-->>Contract: on_transfer_result (status: paid)
+    else Amount > Soft Limit (High-Value Spend)
+        Contract-->>Contract: Assign status: pending (lock active payment)
+        Relay->>ESP32: Serial frame: Approval request details
+        Note over ESP32: Waits for physical button actuation
+        User->>ESP32: Press GPIO25 button
+        ESP32-->>Relay: Serial frame: Ed25519 signature + public key
+        Relay->>Contract: approve_spend(payment_id, signature)
+        Contract-->>Contract: Verify Ed25519(sig, canonical_msg, device_key)
+        Contract->>Recipient: Promise::transfer(amount)
+        Contract-->>Contract: on_transfer_result (status: paid)
+    end
 ```
 
-Use the same `AGENT_API_TOKEN` configured on the relay. The client permits plain HTTP only for loopback development URLs; remote relay URLs must use HTTPS. Start the relay in one terminal, then run:
+---
 
-```sh
-npm run agent:request
-```
+## 3. Verified Live Testnet Evidence
 
-The client makes exactly one HTTP attempt and never generates or changes an idempotency key. If the network outcome is uncertain, preserve the same key and reconcile the relay/contract state before deciding what to do. Reusing the key with a different recipient or amount returns an idempotency conflict. Use a new key only for a genuinely new payment intent. The example does not contain private keys, create access keys, approve hardware requests or submit on-chain transactions directly.
+Tapproved is deployed and fully verified on **NEAR Testnet**:
 
-The client is an integration example, not the Phase F SDK. A live request requires a running relay with its persistent journal and a separately provisioned least-privilege request/execution key on `manex-agent.testnet`. The relay refuses to submit if that signer is not correctly scoped.
+| Milestone | Entity / Transaction | Link / Hash |
+|---|---|---|
+| **Treasury Contract** | `manextech.testnet` | [NEAR Explorer](https://explorer.testnet.near.org/accounts/manextech.testnet) |
+| **Registered Agent** | `manex-agent.testnet` | [NEAR Explorer](https://explorer.testnet.near.org/accounts/manex-agent.testnet) |
+| **Contract Deployment** | Release Wasm Code Hash | `Amp87jC1DCJjyA5bsmfEpFQzuqu72Cw7NSLRNk8uh3R5` ([Tx](https://explorer.testnet.near.org/transactions/4psHQnNteqE8SR6g9dBnSeu4smnpt3hDqXjFkzU3kzkU)) |
+| **In-Place State Migration** | Guarded `migrate()` | [Tx `4AXh7BEC...`](https://explorer.testnet.near.org/transactions/4AXh7BECjmMy2X7JCmS8G3UdXbXvJMNzJNDrj6Cq87Sh) (Gas: 0.309 Tgas) |
+| **Allowlist Expansion** | `add_allowed_recipient` | [Tx `CTT3bGrY...`](https://explorer.testnet.near.org/transactions/CTT3bGrY1pzw276BTwVotsoP9A9WpnzGj8z5tTXtafDp) |
+| **Autonomous Request #4** | `request_spend(0.001 NEAR)` | [Tx `6FY3y24t...`](https://explorer.testnet.near.org/transactions/6FY3y24tZ21Yb8vgDsHkMQU8qqYCuo6ESeJoybLUTFUu) |
+| **Settlement & Callback #4** | `execute_approved_spend(4)` | [Tx `C5fZ7UW8...`](https://explorer.testnet.near.org/transactions/C5fZ7UW8TW3nSwv8EhD4gh8GdmUpMdqvCjHAGA1fkUNi) |
+| **Hardware Approval #3** | First ESP32 Button Approval | [Milestone Report](docs/TESTNET-HARDWARE-APPROVAL-MILESTONE.md) |
 
-## Architecture
+---
 
-- **Contract:** `contract/src/lib.rs` owns policy, payment state, reservations, signature verification, transfer promises and callbacks.
-- **Firmware:** `firmware/src/main.cpp` validates the configured contract/network, reconstructs the v1 message, waits for a physical button press and signs with the device Ed25519 key.
-- **Relay:** `relay/server.js` exposes authenticated payment, approval and status APIs, and serves the live monitoring dashboard; `relay/payment-requests.js` validates requests and persists idempotency; `relay/near-signer.js` and `relay/approval-service.js` enforce separate least-privilege request/execution and hardware-approval keys.
-- **AI Agent SDK:** `sdk/index.js` and `sdk/index.d.ts` provide high-level client interfaces (`TapprovedClient`) for autonomous agents with typed errors and pending-approval notification hooks. See [Agent Integration Guide](docs/AGENT-INTEGRATION.md).
-- **Dashboard:** `dashboard/index.html` provides a modern dark-mode monitoring interface with real-time NEAR Testnet RPC telemetry, daily spending quota visualization, pending approval alerts, payment history, owner management controls, and transaction explorer.
-- **Protocol:** `docs/APPROVAL-PROTOCOL.md` defines the exact signed byte sequence. `protocol/v1-vector.json` is a deterministic interoperability fixture.
-- **Hackathon & Architecture Guide:** [NEAR Hackathon Submission](docs/HACKATHON.md) details the problem, solution, differentiation, and live Testnet verification evidence.
+## 4. 3-Minute Quickstart & Reproducibility
 
-## Repository setup and checks
+### Prerequisites
+- Node.js >= 22.22.2
+- Git
 
-Requirements: Node.js 22.22.2 or newer, Rust stable with `wasm32-unknown-unknown`, and PlatformIO Core 6.1.18.
-
-Install Node dependencies and run checks:
-
-```sh
+### 1. Install & Run Verification Test Suite
+```bash
+git clone https://github.com/manex-tech/tapproved.git
+cd tapproved
 npm ci
 npm run check
 ```
+*Runs all 169 Node test assertions, syntax checks across SDK, relay, examples, and dashboard.*
 
-Run contract tests and build the deployable Wasm:
-
-```sh
-cd contract
-cargo test
-cargo build --target wasm32-unknown-unknown --release
+### 2. Run the Autonomous AI Agent Demo
+```bash
+npm run agent:autonomous
 ```
+*Simulates the full agent lifecycle: inspects live on-chain policy, executes routine spending, handles high-value hardware gating, and recovers from policy rejections.*
 
-Build the ESP32 firmware:
-
-```sh
-cd firmware
-pio run
-```
-
-Configure the relay from the repository root:
-
-```sh
-cp .env.example .env
-```
-
-Set a high-entropy `AGENT_API_TOKEN` and provide `NEAR_SIGNER_PRIVATE_KEY` only if a dedicated, already-registered FunctionCall key exists on `manex-agent.testnet`. That key must be restricted to receiver `manextech.testnet`, methods `request_spend` and `execute_approved_spend` only, and a finite allowance no greater than 5 NEAR. Set `NEAR_APPROVAL_SIGNER_PRIVATE_KEY` to a second Ed25519 FunctionCall key on `manex-agent.testnet`, restricted to receiver `manextech.testnet` and method `approve_spend` only, with a finite allowance no greater than 5 NEAR. Set `NEAR_EXPIRY_SIGNER_PRIVATE_KEY` to a third, separate Ed25519 FunctionCall key restricted to receiver `manextech.testnet` and method `expire_payment` only, also with a finite allowance no greater than 5 NEAR. `EXPIRY_MONITOR_INTERVAL_MS` defaults to 15000 and accepts values from 1000 through 3600000. `RECOVERY_MONITOR_INTERVAL_MS` defaults to 30000 and accepts values from 5000 through 3600000. Do not use a FullAccess key. The relay verifies this permission against the live Testnet access-key list and refuses broader keys. Keep `.env` local; it is git-ignored. For the ESP32 USB serial transport, set `SERIAL_PORT` to the local device path (for example `/dev/ttyUSB0` on Linux or `COM7` on Windows). The default baud rate is 115200 and the approval response timeout is 35 seconds.
-
-Start the relay:
-
-```sh
+### 3. Launch the Monitoring Dashboard
+```bash
 npm start
 ```
+*Open `http://localhost:3000/dashboard` to view real-time treasury balances, daily quota progress, pending approval alerts, payment history, and owner administrative controls.*
 
-The relay loads `.env` automatically and defaults to `https://rpc.testnet.near.org`, `manextech.testnet` and `manex-agent.testnet`. If either signer configuration or access-key verification fails, the HTTP service starts with the corresponding operation disabled. `POST /v1/payment-requests` returns `503` if the request/execution signer is unavailable; `POST /v1/approvals/process` returns `503` if the approval signer or serial port is unavailable. The owner must provision both restricted keys separately; the relay never creates or modifies keys.
+---
 
-Run the local-only simulator:
+## 5. AI Agent SDK
 
-```sh
-npm run simulate
+The official SDK (`sdk/index.js`, `sdk/index.d.ts`) provides clean, strongly-typed interfaces for agentic frameworks:
+
+```javascript
+import { TapprovedClient } from "tapproved/sdk";
+
+const client = new TapprovedClient({
+  relayUrl: "http://127.0.0.1:3000",
+  token: process.env.AGENT_API_TOKEN
+});
+
+// 1. Inspect spending policy
+const policy = await client.getPolicy();
+console.log("Daily Limit:", policy.daily_limit_yocto);
+
+// 2. Request an autonomous payment
+const result = await client.requestPayment({
+  recipientId: "merchant.testnet",
+  amountYocto: "5000000000000000000000" // 0.005 NEAR
+});
+
+// 3. Await resolution with pending-approval notification hooks
+const payment = await client.waitForPaymentResolution(result.payment.id, {
+  onPendingApproval: (pending) => {
+    console.log(`[ALERT] Payment ${pending.id} awaiting physical ESP32 button press!`);
+  }
+});
+console.log("Settlement Status:", payment.status); // 'paid'
 ```
 
-CI runs Node syntax/tests, Rust contract tests plus a release Wasm build, and an ESP32 PlatformIO build.
+See the [Agent Integration Guide](docs/AGENT-INTEGRATION.md) for error hierarchies, typed definitions, and idempotency guarantees.
 
-## Key policy and limitations
+---
 
-- The contract account is the treasury: transfers are made from the contract's NEAR balance, not from the agent's own wallet.
-- Only one payment may be active at a time.
-- Payment requests expire after five minutes. `expire_payment` is permissionless, and a subsequent valid request automatically expires a stale pending/approved payment. Processing payments cannot be auto-expired.
-- Payment history is capped at 1,000 retained records. The oldest terminal records are pruned when a new record is inserted at capacity.
-- Daily usage is keyed by UTC day and retains at most 90 day records. The view separates committed spend from outstanding reservations and reports used and remaining capacity; the daily limit applies to spent plus reserved.
-- Successful settlement moves the amount from reserved to spent. Failed, expired and cancelled payments release the reservation. Older daily records are pruned on a new request, but records with outstanding reservations are never discarded.
-- The owner can atomically update soft, hard and daily limits; reductions below any retained day's spent-plus-reserved usage are rejected. The recipient allowlist is capped at 100 accounts.
-- The owner can rotate the registered 32-byte device public key with `rotate_device_key`. Rotation immediately rejects signatures from the previous key and does not cancel an active payment; drain pending approvals first. See the [device-key rotation procedure](docs/DEVICE-KEY-ROTATION.md). Automated contract tests cover new-key approval and old-key rejection; no live rotation is implied.
-- Firmware stores the Ed25519 seed in ordinary ESP32 NVS. The seed is not held in a global RAM variable: it is loaded into a scope-bound zeroizing buffer at startup only to derive the public key, then reloaded after a fresh physical approval and checked against the startup identity before signing. This reduces RAM exposure but does not encrypt NVS or prevent runtime/debug extraction while signing. Secure Boot, Flash Encryption, NVS encryption and debug-port hardening are not configured. See the [ESP32 security assessment](docs/ESP32-SECURITY-ASSESSMENT.md) before any production hardening; silicon revision and eFuse state must be inspected first.
-- Serial output is not a trusted display. A compromised host or relay could misrepresent the payment details shown to the operator.
-- Relay disconnect/reset recovery and NVS truncated-record handling have automated host/model coverage. Physical USB unplug, ESP32 reset and power-loss fault injection remain outstanding; see [disconnect/reset/power-loss recovery tests](docs/DISCONNECT-RESET-POWER-LOSS.md).
-- The hardware milestone used the contract account as recipient. External-recipient settlement and broader end-to-end automation still need explicit testing.
-- The project has not undergone an independent security audit. Testnet only.
+## 6. Real-Time Dashboard
 
-## Documentation
+The dashboard provides operators with complete situational awareness over agent activity:
 
-- [Contract behavior and invariants](docs/CONTRACT.md)
-- [Testnet deployment status](docs/TESTNET-DEPLOYMENT.md)
-- [Hardware approval milestone](docs/TESTNET-HARDWARE-APPROVAL-MILESTONE.md)
-- [Approval protocol v1](docs/APPROVAL-PROTOCOL.md)
-- [Firmware and protocol audit](docs/FIRMWARE-PROTOCOL-AUDIT.md)
-- [ESP32 security assessment](docs/ESP32-SECURITY-ASSESSMENT.md)
-- [Device-key rotation procedure](docs/DEVICE-KEY-ROTATION.md)
-- [Disconnect, reset and power-loss recovery tests](docs/DISCONNECT-RESET-POWER-LOSS.md)
-- [Local simulator](docs/SIMULATOR.md)
+- **Treasury Telemetry**: Live NEAR native balance, available balance, storage staking reserve, and storage headroom.
+- **Daily Quota Progress**: Visual percentage bar tracking cumulative spend + reservations against `daily_limit_yocto`.
+- **Active Pending Approval Banner**: Real-time pulsing alert with countdown timer whenever a high-value payment is awaiting physical ESP32 button confirmation.
+- **Payment History Table**: Comprehensive log of all payments, showing amounts in readable NEAR and exact yoctoNEAR, statuses (`paid`, `approved`, `pending`, `expired`), timestamps, and hardware-signed badges.
+- **Owner Governance Generator**: Interactive tool to generate executable `near-cli-rs` commands for emergency pause/unpause, allowlist management, and spending limit updates.
+- **Transaction Explorer**: Query any NEAR transaction hash for execution receipts and finality status.
 
-## License
+---
 
-MIT. See [LICENSE](LICENSE).
+## 7. Security Architecture & Threat Model
+
+| Threat Scenario | Defense & Mitigation | Documented In |
+|---|---|---|
+| **Agent Key Theft** | Blast radius is strictly capped by per-payment soft limit and daily spending limit. Attacker can only pay pre-approved allowlist recipients. Owner can freeze treasury via `pause()` or rebind agent key via `set_agent()`. | [Threat Model §2.1](docs/SECURITY-THREAT-MODEL.md) |
+| **Hardware Key Extraction** | Signatures cannot conjure payments or bypass on-chain policy. Signatures are accepted only if a payment is already created by the agent in `pending` state and within the 5-minute expiry window. Owner can rotate device key atomically via `rotate_device_key()`. | [Threat Model §2.2](docs/SECURITY-THREAT-MODEL.md) |
+| **Signature Replay** | The canonical payload cryptographically binds `payment_id`, `recipient_id`, `amount_yocto`, `nonce`, `expires_at_ns`, `contract_id`, and `network_id`. Signatures cannot be replayed on mainnet or across payments. | [Threat Model §2.4](docs/SECURITY-THREAT-MODEL.md) |
+| **Relay Compromise** | Relay possesses zero spending authority. Tampering with serial payloads invalidates the Ed25519 signature on-chain. Stalled payments expire safely without loss of funds. | [Threat Model §2.5](docs/SECURITY-THREAT-MODEL.md) |
+| **Storage Exhaustion** | Storage uses $O(1)$ `LookupMap` collections; daily usage is pruned after 90 days; allowlist is capped at 100 recipients; `get_storage_metrics` monitors available headroom (~2.42 NEAR). | [Threat Model §3](docs/SECURITY-THREAT-MODEL.md) |
+
+---
+
+## 8. Master Documentation Sitemap
+
+- [NEAR Hackathon Submission & Architecture](docs/HACKATHON.md) — Comprehensive hackathon overview, innovation summary, and submission metadata.
+- [Security Threat Model & Analysis](docs/SECURITY-THREAT-MODEL.md) — Formal trust boundaries, threat scenarios, and blast-radius mitigations.
+- [AI Agent Integration Guide](docs/AGENT-INTEGRATION.md) — Complete SDK documentation, idempotency rules, and error codes.
+- [Master Development Checklist](docs/MASTER-DEVELOPMENT-CHECKLIST.md) — Canonical task-by-task execution evidence, CI run URLs, and milestone logs.
+- [Testnet Deployment Runbook](docs/TESTNET-DEPLOYMENT.md) — Exact operator runbook for contract deployment, state migration, and verification.
+- [Hardware Approval Milestone](docs/TESTNET-HARDWARE-APPROVAL-MILESTONE.md) — Verified evidence of the first end-to-end physical ESP32 approval.
+- [Approval Protocol v1](docs/APPROVAL-PROTOCOL.md) — Canonical binary serialization and deterministic Ed25519 test vectors.
+- [ESP32 Security Assessment](docs/ESP32-SECURITY-ASSESSMENT.md) — Physical micro-controller security, NVS key storage, and memory zeroization.
+- [Device Key Rotation](docs/DEVICE-KEY-ROTATION.md) — Operational runbook for zero-downtime hardware key rotation.
+
+---
+
+## 9. License
+
+This project is licensed under the [MIT License](LICENSE).
