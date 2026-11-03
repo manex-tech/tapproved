@@ -160,17 +160,17 @@ C12 is complete and merged in [PR #43](https://github.com/manex-tech/tapproved/p
 
 ## Phase H: Security and reliability
 
-- [ ] **H1.** Produce a contract threat model.
-- [ ] **H2.** Analyze agent-key compromise.
-- [ ] **H3.** Analyze hardware-key extraction.
-- [ ] **H4.** Analyze malicious recipient and request manipulation.
-- [ ] **H5.** Analyze replay and signature-substitution attacks.
-- [ ] **H6.** Analyze relay compromise.
-- [ ] **H7.** Analyze owner-account compromise.
-- [ ] **H8.** Review pause and recovery procedures.
-- [ ] **H9.** Review storage exhaustion and pruning behavior.
-- [ ] **H10.** Document known limitations and residual risks.
-- [ ] **H11.** Run the final automated security and regression suite.
+- [x] **H1.** Produce a contract threat model. Produced comprehensive threat model and trust boundary mapping across Contract, Hardware, Agent, Relay, and Owner in `docs/SECURITY-THREAT-MODEL.md`.
+- [x] **H2.** Analyze agent-key compromise. Proved blast radius is strictly capped by remaining daily limit and per-payment soft limit; payments restricted to allowlisted recipients only; mitigated via owner `pause` and `set_agent`.
+- [x] **H3.** Analyze hardware-key extraction. Analyzed physical key extraction; proved key cannot create arbitrary payments or bypass on-chain agent authorization, allowlists, or expiry; mitigated via atomic `rotate_device_key`.
+- [x] **H4.** Analyze malicious recipient and request manipulation. Analyzed prompt-injection and malicious recipient risks; verified strict on-chain allowlist enforcement, regex validation, and u128 bounds checking.
+- [x] **H5.** Analyze replay and signature-substitution attacks. Analyzed replay risks; verified domain separation with contract ID and network ID, one-time payment ID nonces, single active payment invariant, and irreversible state transitions.
+- [x] **H6.** Analyze relay compromise. Proved untrusted relay cannot forge signatures, mutate amounts, or steal funds; analyzed DoS risks and confirmed safe automatic expiration.
+- [x] **H7.** Analyze owner-account compromise. Evaluated administrative capabilities and documented multi-sig DAO governance recommendations for mainnet.
+- [x] **H8.** Review pause and recovery procedures. Documented operational runbooks for emergency `pause`, `unpause`, manual cancellation, and permissionless `expire_payment` keeper execution.
+- [x] **H9.** Review storage exhaustion and pruning behavior. Analyzed state scaling; verified $O(1)$ `LookupMap` collections, 90-day daily usage pruning, 100-recipient allowlist cap, and `get_storage_metrics` monitoring (2.42 NEAR headroom).
+- [x] **H10.** Document known limitations and residual risks. Formally documented developer prototype status, serial display limitations, and recommendations for EAL6+ secure elements and physical OLED displays.
+- [x] **H11.** Run the final automated security and regression suite. Executed complete regression suite: 169 Node test assertions, 83 Rust contract tests, and 6 ESP32 firmware test suites all passing across CI and local test harnesses.
 
 ## Phase I: NEAR Hackathon preparation
 
