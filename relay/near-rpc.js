@@ -20,6 +20,85 @@ function configuration(env = process.env) {
   return { networkId, rpcUrl, contractId, signerAccountId };
 }
 
+/**
+ * Read a single finalized block header so every preflight query can be pinned
+ * to the same immutable state snapshot.
+ */
+export async function getFinalizedBlock(options = {}) {
+  const { rpcUrl } = configuration(options.env);
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable");
+  const response = await fetchImpl(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "tapproved-finalized-block",
+      method: "block",
+      params: { finality: "final" }
+    }),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`NEAR RPC HTTP ${response.status}`);
+  const payload = await response.json();
+  if (payload.error) {
+    throw new Error(`NEAR RPC error: ${payload.error.message || "unknown error"}`);
+  }
+  const header = payload.result?.header;
+  if (!header || !Number.isSafeInteger(header.height) ||
+      typeof header.hash !== "string" || header.hash.length < 32 ||
+      typeof header.timestamp_nanosec !== "string" ||
+      !/^[0-9]+$/.test(header.timestamp_nanosec)) {
+    throw new Error("NEAR RPC returned an invalid finalized block header");
+  }
+  return {
+    height: header.height,
+    hash: header.hash,
+    timestamp_nanosec: header.timestamp_nanosec
+  };
+}
+
+/** Read account balance, deployed code hash and storage at a fixed block. */
+export async function getAccountView(options = {}) {
+  const { rpcUrl, contractId } = configuration(options.env);
+  if (options.blockId !== undefined &&
+      !(typeof options.blockId === "string" && options.blockId.length > 0)) {
+    throw new TypeError("blockId must be a non-empty block hash");
+  }
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable");
+  const params = {
+    request_type: "view_account",
+    account_id: contractId,
+    ...(options.blockId ? { block_id: options.blockId } : { finality: "final" })
+  };
+  const response = await fetchImpl(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "tapproved-account-preflight",
+      method: "query",
+      params
+    }),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`NEAR RPC HTTP ${response.status}`);
+  const payload = await response.json();
+  if (payload.error) {
+    throw new Error(`NEAR RPC error: ${payload.error.message || "unknown error"}`);
+  }
+  const result = payload.result;
+  if (!result || typeof result !== "object" ||
+      typeof result.amount !== "string" || !/^[0-9]+$/.test(result.amount) ||
+      typeof result.locked !== "string" || !/^[0-9]+$/.test(result.locked) ||
+      typeof result.code_hash !== "string" ||
+      !Number.isSafeInteger(result.storage_usage) || result.storage_usage < 0) {
+    throw new Error("NEAR RPC returned an invalid account view");
+  }
+  return result;
+}
+
 export async function callViewMethod(methodName, args = {}, options = {}) {
   if (!/^[a-z][a-z0-9_]*$/.test(methodName)) throw new TypeError("invalid view method name");
   const { rpcUrl, contractId } = configuration(options.env);
@@ -35,7 +114,7 @@ export async function callViewMethod(methodName, args = {}, options = {}) {
       method: "query",
       params: {
         request_type: "call_function",
-        finality: "final",
+        ...(options.blockId ? { block_id: options.blockId } : { finality: "final" }),
         account_id: contractId,
         method_name: methodName,
         args_base64: argsBase64
@@ -56,6 +135,18 @@ export async function getPolicy(options) {
 
 export async function getActivePayment(options) {
   return callViewMethod("get_active_payment", {}, options);
+}
+
+export async function getDailyUsage(utcDay, options = {}) {
+  if ((typeof utcDay !== "number" && typeof utcDay !== "string") ||
+      !/^[0-9]+$/.test(String(utcDay))) {
+    throw new TypeError("UTC day must be a non-negative integer");
+  }
+  const day = BigInt(utcDay);
+  if (day > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError("UTC day exceeds the safe JSON integer range");
+  }
+  return callViewMethod("get_daily_usage", { utc_day: Number(day) }, options);
 }
 
 export async function getPayment(paymentId, options) {
@@ -180,28 +271,6 @@ export { DEFAULT_RPC_URL, DEFAULT_CONTRACT_ID };
  * must use chain time rather than the relay host clock.
  */
 export async function getLatestBlockTimestampNs(options = {}) {
-  const { rpcUrl } = configuration(options.env);
-  const fetchImpl = options.fetchImpl || globalThis.fetch;
-  if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable");
-  const response = await fetchImpl(rpcUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: "tapproved-finalized-block-time",
-      method: "block",
-      params: { finality: "final" }
-    }),
-    signal: AbortSignal.timeout(10000)
-  });
-  if (!response.ok) throw new Error(`NEAR RPC HTTP ${response.status}`);
-  const payload = await response.json();
-  if (payload.error) {
-    throw new Error(`NEAR RPC error: ${payload.error.message || "unknown error"}`);
-  }
-  const timestamp = payload.result?.header?.timestamp_nanosec;
-  if (typeof timestamp !== "string" || !/^[0-9]+$/.test(timestamp)) {
-    throw new Error("NEAR RPC returned an invalid finalized block timestamp");
-  }
-  return timestamp;
+  const block = await getFinalizedBlock(options);
+  return block.timestamp_nanosec;
 }
