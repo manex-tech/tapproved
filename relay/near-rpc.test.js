@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { callViewMethod, getActivePayment, getPayment, getPolicy } from "./near-rpc.js";
+import { callViewMethod, getAccountView, getActivePayment, getDailyUsage, getFinalizedBlock, getPayment, getPolicy } from "./near-rpc.js";
 
 function mockFetch(resultValue, capture = {}) {
   return async (url, init) => {
@@ -17,6 +17,61 @@ function mockFetch(resultValue, capture = {}) {
     };
   };
 }
+
+
+test("reads a finalized block header for a consistent preflight snapshot", async () => {
+  const capture = {};
+  const block = { height: 123, hash: "finalized-block-hash-12345678901234567890", timestamp_nanosec: "1793520012345678901" };
+  const result = await getFinalizedBlock({
+    env: {},
+    fetchImpl: async (url, init) => {
+      capture.url = url;
+      capture.request = JSON.parse(init.body);
+      return { ok: true, status: 200, json: async () => ({ result: { header: block } }) };
+    }
+  });
+  assert.deepEqual(result, block);
+  assert.equal(capture.request.method, "block");
+  assert.deepEqual(capture.request.params, { finality: "final" });
+});
+
+test("reads account balance, code hash and storage usage at a pinned block", async () => {
+  const capture = {};
+  const account = { amount: "100", locked: "2", code_hash: "ContractCodeHash", storage_usage: 1234 };
+  const result = await getAccountView({
+    env: {},
+    blockId: "finalized-block-hash",
+    fetchImpl: async (url, init) => {
+      capture.url = url;
+      capture.request = JSON.parse(init.body);
+      return { ok: true, status: 200, json: async () => ({ result: account }) };
+    }
+  });
+  assert.deepEqual(result, account);
+  assert.equal(capture.request.method, "query");
+  assert.deepEqual(capture.request.params, {
+    request_type: "view_account",
+    account_id: "manextech.testnet",
+    block_id: "finalized-block-hash"
+  });
+});
+
+test("reads legacy daily accounting at the same finalized block", async () => {
+  const capture = {};
+  const result = await getDailyUsage(20700, {
+    env: {},
+    blockId: "finalized-block-hash",
+    fetchImpl: mockFetch({ utc_day: "20700", reserved_yocto: "75", daily_limit_yocto: "5000" }, capture)
+  });
+  assert.deepEqual(result, { utc_day: "20700", reserved_yocto: "75", daily_limit_yocto: "5000" });
+  assert.equal(capture.request.params.block_id, "finalized-block-hash");
+  assert.equal(capture.request.params.finality, undefined);
+  assert.equal(capture.request.params.method_name, "get_daily_usage");
+  assert.deepEqual(JSON.parse(Buffer.from(capture.request.params.args_base64, "base64").toString()), {
+    utc_day: 20700
+  });
+  await assert.rejects(getDailyUsage(-1), /non-negative integer/);
+});
 
 test("defaults to the deployed Tapproved contract on NEAR testnet", async () => {
   const capture = {};
@@ -117,7 +172,7 @@ test("reads the finalized NEAR block timestamp as a decimal nanosecond string", 
         json: async () => ({
           jsonrpc: "2.0",
           id: "tapproved-finalized-block-time",
-          result: { header: { timestamp_nanosec: timestamp } }
+          result: { header: { height: 123, hash: "finalized-block-hash-12345678901234567890", timestamp_nanosec: timestamp } }
         })
       };
     }
@@ -136,10 +191,10 @@ test("rejects malformed finalized block timestamps and RPC errors", async () => 
       fetchImpl: async () => ({
         ok: true,
         status: 200,
-        json: async () => ({ result: { header: { timestamp_nanosec: 1793520012345678901 } } })
+        json: async () => ({ result: { header: { height: 123, hash: "finalized-block-hash-12345678901234567890", timestamp_nanosec: 1793520012345678901 } } })
       })
     }),
-    /invalid finalized block timestamp/
+    /invalid finalized block header/
   );
   await assert.rejects(
     getLatestBlockTimestampNs({

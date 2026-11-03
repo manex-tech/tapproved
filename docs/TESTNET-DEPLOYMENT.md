@@ -33,13 +33,16 @@ The firmware rejects a request whose contract or network differs from its compil
 
 Use this sequence for the pre-keyed Vec-based deployment on `manextech.testnet`:
 
-1. Stop the relay and all agent request sources. Do not permit a new payment request during the upgrade window.
-2. Record the current `get_policy`, `get_active_payment`, relevant `get_payment` records and `get_daily_usage` results. Separately query the account with NEAR RPC `view_account` at finality `final` and record `amount`, `locked` and `storage_usage`; the pre-migration deployed ABI does not include the later `get_storage_metrics` view. Confirm the active payment and its daily reservation are consistent, and that the account has enough available balance for storage growth from the new keyed daily records. Do not attempt to reconcile an ambiguous `processing` payment.
-3. Build the release Wasm from the reviewed commit and record its SHA-256. Confirm that the artifact contains the `migrate` entry point and the expected state-version marker logic.
-4. Upgrade the code on the existing `manextech.testnet` account. Do not call `new`.
-5. Immediately call `migrate` once, signed by the `manextech.testnet` account key. The method is private and intentionally only accepts a call whose predecessor is the contract account itself.
-6. Verify `get_policy` is unchanged, `get_active_payment` and retained `get_payment` records are unchanged, and `get_daily_usage` returns the new spent/reserved/used/remaining fields with the expected values.
-7. Only after those checks pass, restore relay and agent traffic.
+1. Run the read-only preflight against the canonical Testnet RPC and save the output outside Git:
+   `npm run testnet:preflight -- --output .tapproved/testnet-preflight.json`.
+   The command pins all account and contract reads to one finalized block, captures the policy/device key/active payment, reads the full 90-day legacy daily window and calculates the exact expected migrated spent/reserved totals. It exits non-zero and marks the snapshot blocked if the deployed ABI or state is inconsistent. It does not sign or submit transactions.
+2. Stop the relay and all agent request sources. Do not permit a new payment request during the upgrade window.
+3. Review the saved snapshot, especially `ready_for_upgrade`, `blockers`, active payment state, 90 daily totals, account balance and storage usage. The pre-migration deployed ABI does not include the later `get_storage_metrics` view. Confirm the active payment and its daily reservation are consistent, and manually evaluate that the account can fund storage growth from the new keyed daily records. Do not attempt to reconcile an ambiguous `processing` payment.
+4. Build the release Wasm from the reviewed commit and record its SHA-256. Confirm that the artifact contains the `migrate` entry point and the expected state-version marker logic.
+5. Upgrade the code on the existing `manextech.testnet` account. Do not call `new`.
+6. Immediately call `migrate` once, signed by the `manextech.testnet` account key. The method is private and intentionally only accepts a call whose predecessor is the contract account itself.
+7. Verify `get_policy` is unchanged, `get_active_payment` and retained `get_payment` records are unchanged, and `get_daily_usage` returns the new spent/reserved/used/remaining fields with the expected values.
+8. Only after those checks pass, restore relay and agent traffic.
 
 The migration is atomic at the NEAR receipt level. If the migration call fails, its state writes roll back; do not send ordinary application calls against the upgraded code until the migration succeeds or the previous Wasm has been restored. Keep the prior Wasm artifact available for rollback. The migration method is intentionally one-time and the marker is written by both `new` and `migrate`.
 
