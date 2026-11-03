@@ -22,7 +22,7 @@
 
 ## Current checkpoint
 
-**Active task: E2 exercise an automatically approved payment. This requires explicit approval before any live Testnet payment request or transfer.**
+**Active task: B13 add and verify the in-place migration from the deployed Vec-based daily accounting layout.** PR [#60](https://github.com/manex-tech/tapproved/pull/60) is open; do not merge or upgrade until the migration tests and all CI jobs pass. After B13 is merged, resume E2 with a controlled automatically approved Testnet payment.
 
 **E1 completed:** PR [#59](https://github.com/manex-tech/tapproved/pull/59) merged as `7e17c283b3686e110519cc76ac5047b08dd4dbd2`; CI run [41523732632](https://github.com/manex-tech/tapproved/actions/runs/41523732632) passed all three jobs. Added `examples/agent-request.js`, a minimal authenticated client for `POST /v1/payment-requests`, with strict environment validation, HTTPS enforcement for non-loopback URLs, caller-supplied stable idempotency keys, and no automatic retries. Added five client tests; Node CI passed 130 tests with zero failures. Added `npm run agent:request`, optional `.env.example` fields and a README quickstart. No live payment request, NEAR transaction, signing or hardware interaction was performed. The next E2 task requires explicit approval for a live Testnet payment/transfer.
 
