@@ -186,7 +186,7 @@ export async function collectTestnetPreflight(options = {}) {
     const reservation = activePaymentDay === entry.utc_day ? activeAmount : 0n;
     return {
       utc_day: entry.utc_day,
-      expected_spent_yocto: (total - reservation).toString(),
+      expected_spent_yocto: (total >= reservation ? total - reservation : 0n).toString(),
       expected_reserved_yocto: reservation.toString(),
       expected_used_yocto: total.toString()
     };
