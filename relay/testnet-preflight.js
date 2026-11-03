@@ -5,7 +5,8 @@ import {
   getDailyUsage,
   getFinalizedBlock,
   getPayment,
-  getPolicy
+  getPolicy,
+  getProtocolConfig
 } from "./near-rpc.js";
 
 const NANOS_PER_DAY = 86_400_000_000_000n;
@@ -55,7 +56,8 @@ export async function collectTestnetPreflight(options = {}) {
     getPolicy,
     getActivePayment,
     getPayment,
-    getDailyUsage
+    getDailyUsage,
+    getProtocolConfig
   };
   const concurrency = options.concurrency ?? 1;
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) {
@@ -71,10 +73,11 @@ export async function collectTestnetPreflight(options = {}) {
   const firstDay = Math.max(0, currentDay - (RETAINED_DAYS - 1));
   const blockOptions = { blockId: block.hash };
 
-  const [account, policy, activePayment] = await Promise.all([
+  const [account, policy, activePayment, protocolConfig] = await Promise.all([
     rpc.getAccountView(blockOptions),
     rpc.getPolicy(blockOptions),
-    rpc.getActivePayment(blockOptions)
+    rpc.getActivePayment(blockOptions),
+    rpc.getProtocolConfig(blockOptions)
   ]);
 
   const blockers = [];
@@ -251,6 +254,58 @@ export async function collectTestnetPreflight(options = {}) {
     });
   }
 
+  let storageFunding = null;
+  try {
+    if (protocolConfig.chain_id !== "testnet") {
+      addBlocker(blockers, "protocol-config-wrong-network", `Expected testnet protocol config, received ${protocolConfig.chain_id}`);
+    }
+    const storagePricePerByte = decimal(
+      protocolConfig.storage_amount_per_byte,
+      "protocol storage amount per byte"
+    );
+    const accountAmount = decimal(account.amount, "contract account balance");
+    const currentStorageRequirement = BigInt(account.storage_usage) * storagePricePerByte;
+
+    // Conservative bound: each retained day can add a 9-byte storage key,
+    // 40-byte DailyUsage value and 8-byte retention index entry, plus 28 bytes
+    // for the one-time state-version marker and small collection overhead.
+    // This intentionally does not credit the smaller replacement state blob.
+    const estimatedGrowthBytes = (legacyDailyUsage.length * 57) + 28;
+    const estimatedGrowthCost = BigInt(estimatedGrowthBytes) * storagePricePerByte;
+    const availableAfterCurrentStorage = accountAmount > currentStorageRequirement
+      ? accountAmount - currentStorageRequirement
+      : 0n;
+    const headroomAfterMigrationEstimate = availableAfterCurrentStorage - estimatedGrowthCost;
+    const sufficient = accountAmount >= currentStorageRequirement &&
+      availableAfterCurrentStorage >= estimatedGrowthCost;
+
+    storageFunding = {
+      protocol_chain_id: protocolConfig.chain_id,
+      protocol_version: protocolConfig.protocol_version,
+      storage_amount_per_byte_yocto: storagePricePerByte.toString(),
+      current_account_storage_requirement_yocto: currentStorageRequirement.toString(),
+      account_amount_yocto: accountAmount.toString(),
+      available_after_current_storage_yocto: availableAfterCurrentStorage.toString(),
+      legacy_daily_buckets_observed: legacyDailyUsage.length,
+      estimated_migration_storage_growth_bytes: estimatedGrowthBytes,
+      estimated_migration_storage_growth_cost_yocto: estimatedGrowthCost.toString(),
+      estimated_headroom_after_migration_yocto: (headroomAfterMigrationEstimate > 0n
+        ? headroomAfterMigrationEstimate
+        : 0n).toString(),
+      sufficient_for_conservative_estimate: sufficient
+    };
+
+    if (!sufficient) {
+      addBlocker(
+        blockers,
+        "insufficient-storage-funding",
+        "The contract account balance does not cover its current storage requirement plus the conservative migration growth estimate"
+      );
+    }
+  } catch (error) {
+    addBlocker(blockers, "storage-funding-check-failed", error.message);
+  }
+
   const migratedAccountingExpectation = legacyDailyUsage.map((entry) => {
     const total = BigInt(entry.legacy_daily_total_yocto);
     const reservation = activePaymentDay === entry.utc_day ? activeAmount : 0n;
@@ -303,6 +358,7 @@ export async function collectTestnetPreflight(options = {}) {
     payment_history_records: enumerateAllPayments ? paymentHistoryRecords : null,
     legacy_daily_usage: legacyDailyUsage,
     expected_migrated_daily_usage: migratedAccountingExpectation,
+    storage_funding: storageFunding,
     storage_funding_review_required: true
   };
 }
