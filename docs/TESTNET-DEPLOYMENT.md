@@ -34,7 +34,7 @@ The firmware rejects a request whose contract or network differs from its compil
 Use this sequence for the pre-keyed Vec-based deployment on `manextech.testnet`:
 
 1. Stop the relay and all agent request sources. Do not permit a new payment request during the upgrade window.
-2. Record the current `get_policy`, `get_active_payment`, relevant `get_payment` records and `get_daily_usage` results. Confirm the active payment and its daily reservation are consistent. Do not attempt to reconcile an ambiguous `processing` payment.
+2. Record the current `get_policy`, `get_active_payment`, relevant `get_payment` records, `get_daily_usage` results and `get_storage_metrics`. Confirm the active payment and its daily reservation are consistent, and confirm the contract has enough available storage balance for the new keyed daily records. Do not attempt to reconcile an ambiguous `processing` payment.
 3. Build the release Wasm from the reviewed commit and record its SHA-256. Confirm that the artifact contains the `migrate` entry point and the expected state-version marker logic.
 4. Upgrade the code on the existing `manextech.testnet` account. Do not call `new`.
 5. Immediately call `migrate` once, signed by the `manextech.testnet` account key. The method is private and intentionally only accepts a call whose predecessor is the contract account itself.
