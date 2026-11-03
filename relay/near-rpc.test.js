@@ -173,6 +173,27 @@ test("surfaces RPC errors", async () => {
 });
 
 
+
+test("preserves raw u64 view timestamps above JavaScript's safe integer range", async () => {
+  const raw = '{"id":1,"created_at_ns":1793694419407609771,"expires_at_ns":1793694719407609771,"amount_yocto":"20","status":"paid","note":"1793694419407609771"}';
+  const result = await getPayment("1", {
+    env: {},
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        result: { result: [...Buffer.from(raw, "utf8")], logs: [] }
+      })
+    })
+  });
+
+  assert.equal(result.id, 1);
+  assert.equal(result.created_at_ns, "1793694419407609771");
+  assert.equal(result.expires_at_ns, "1793694719407609771");
+  assert.equal(result.note, "1793694419407609771");
+  assert.equal(typeof result.created_at_ns, "string");
+});
+
 test("queries a payment by its exact decimal ID", async () => {
   const capture = {};
   const payment = { id: "43", status: "paid" };
