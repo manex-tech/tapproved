@@ -79,3 +79,15 @@ jobs:
         working-directory: firmware
         run: |
           pio run -e esp32dev
+      - name: Generate ESP32 firmware checksum
+        working-directory: firmware
+        run: sha256sum .pio/build/esp32dev/firmware.bin > .pio/build/esp32dev/SHA256SUMS.txt
+      - name: Upload deployable ESP32 firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: tapproved-esp32-firmware
+          path: |
+            firmware/.pio/build/esp32dev/firmware.bin
+            firmware/.pio/build/esp32dev/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
