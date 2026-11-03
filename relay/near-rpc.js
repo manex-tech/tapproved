@@ -6,6 +6,26 @@ const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvw
 const TRANSACTION_WAIT_UNTIL = new Set(["NONE", "INCLUDED", "EXECUTED_OPTIMISTIC", "INCLUDED_FINAL", "EXECUTED", "FINAL"]);
 const TAPPROVED_METHODS = new Set(["request_spend", "execute_approved_spend", "approve_spend", "expire_payment"]);
 
+async function fetchReadOnlyRpc(fetchImpl, rpcUrl, payload, requestId) {
+  let response;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    response = await fetchImpl(rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: requestId, ...payload }),
+      signal: AbortSignal.timeout(10000)
+    });
+    if (response.status !== 429 || attempt === 3) return response;
+
+    const retryAfter = Number(response.headers?.get?.("retry-after"));
+    const delayMs = Number.isFinite(retryAfter) && retryAfter >= 0
+      ? Math.min(retryAfter * 1000, 15000)
+      : Math.min(1000 * (2 ** attempt), 8000);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return response;
+}
+
 function configuration(env = process.env) {
   const networkId = env.NEAR_NETWORK || DEFAULT_NETWORK_ID;
   const rpcUrl = env.NEAR_RPC_URL || DEFAULT_RPC_URL;
@@ -28,17 +48,10 @@ export async function getFinalizedBlock(options = {}) {
   const { rpcUrl } = configuration(options.env);
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable");
-  const response = await fetchImpl(rpcUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: "tapproved-finalized-block",
-      method: "block",
-      params: { finality: "final" }
-    }),
-    signal: AbortSignal.timeout(10000)
-  });
+  const response = await fetchReadOnlyRpc(fetchImpl, rpcUrl, {
+    method: "block",
+    params: { finality: "final" }
+  }, "tapproved-finalized-block");
   if (!response.ok) throw new Error(`NEAR RPC HTTP ${response.status}`);
   const payload = await response.json();
   if (payload.error) {
@@ -72,17 +85,10 @@ export async function getAccountView(options = {}) {
     account_id: contractId,
     ...(options.blockId ? { block_id: options.blockId } : { finality: "final" })
   };
-  const response = await fetchImpl(rpcUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: "tapproved-account-preflight",
-      method: "query",
-      params
-    }),
-    signal: AbortSignal.timeout(10000)
-  });
+  const response = await fetchReadOnlyRpc(fetchImpl, rpcUrl, {
+    method: "query",
+    params
+  }, "tapproved-account-preflight");
   if (!response.ok) throw new Error(`NEAR RPC HTTP ${response.status}`);
   const payload = await response.json();
   if (payload.error) {
@@ -105,23 +111,16 @@ export async function callViewMethod(methodName, args = {}, options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable");
   const argsBase64 = Buffer.from(JSON.stringify(args), "utf8").toString("base64");
-  const response = await fetchImpl(rpcUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: "tapproved-relay",
-      method: "query",
-      params: {
-        request_type: "call_function",
-        ...(options.blockId ? { block_id: options.blockId } : { finality: "final" }),
-        account_id: contractId,
-        method_name: methodName,
-        args_base64: argsBase64
-      }
-    }),
-    signal: AbortSignal.timeout(10000)
-  });
+  const response = await fetchReadOnlyRpc(fetchImpl, rpcUrl, {
+    method: "query",
+    params: {
+      request_type: "call_function",
+      ...(options.blockId ? { block_id: options.blockId } : { finality: "final" }),
+      account_id: contractId,
+      method_name: methodName,
+      args_base64: argsBase64
+    }
+  }, "tapproved-relay");
   if (!response.ok) throw new Error(`NEAR RPC HTTP ${response.status}`);
   const payload = await response.json();
   if (payload.error) throw new Error(`NEAR RPC error: ${payload.error.message || "unknown error"}`);
