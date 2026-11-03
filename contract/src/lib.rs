@@ -81,9 +81,7 @@ struct LegacyTapprovedV1 {
     allowed_recipients: Vec<AccountId>,
     paused: bool,
     next_payment_id: u64,
-    payments: LookupMap<u64, Payment>,
-    payment_count: u64,
-    oldest_retained_payment_id: u64,
+    payments: Vec<Payment>,
     active_payment_id: Option<u64>,
     daily_usage: Vec<LegacyDailyUsageV1>,
 }
@@ -112,12 +110,17 @@ fn migrate_legacy_state(legacy: LegacyTapprovedV1, current_day: u64) -> Tapprove
         allowed_recipients,
         paused,
         next_payment_id,
-        payments,
-        payment_count,
-        oldest_retained_payment_id,
+        payments: legacy_payments,
         active_payment_id,
         daily_usage: legacy_daily_usage,
     } = legacy;
+
+    let payment_count = legacy_payments.len() as u64;
+    let oldest_retained_payment_id = legacy_payments.first().map(|p| p.id).unwrap_or(1);
+    let mut payments = LookupMap::new(b"p");
+    for payment in legacy_payments {
+        payments.insert(payment.id, payment);
+    }
 
     let active_reservation = match active_payment_id {
         Some(payment_id) => {
@@ -913,10 +916,6 @@ mod tests {
         let previous_day = current_day - 1;
         let pruned_day = current_day.saturating_sub(MAX_RETAINED_DAILY_DAYS as u64);
 
-        let mut payments = LookupMap::new(b"p");
-        payments.insert(41, legacy_payment(41, PaymentStatus::Paid, 25, FIXTURE_NOW - 1));
-        payments.insert(42, legacy_payment(42, PaymentStatus::Pending, 50, FIXTURE_NOW));
-
         let legacy = LegacyTapprovedV1 {
             owner_id: account("owner.testnet"),
             agent_id: account("agent.testnet"),
@@ -928,9 +927,10 @@ mod tests {
             allowed_recipients: vec![account("merchant.testnet")],
             paused: true,
             next_payment_id: 43,
-            payments,
-            payment_count: 2,
-            oldest_retained_payment_id: 41,
+            payments: vec![
+                legacy_payment(41, PaymentStatus::Paid, 25, FIXTURE_NOW - 1),
+                legacy_payment(42, PaymentStatus::Pending, 50, FIXTURE_NOW),
+            ],
             active_payment_id: Some(42),
             daily_usage: vec![
                 LegacyDailyUsageV1 { utc_day: current_day, reserved_yocto: 75 },
@@ -997,9 +997,7 @@ mod tests {
             allowed_recipients: vec![account("merchant.testnet")],
             paused: false,
             next_payment_id: 1,
-            payments: LookupMap::new(b"p"),
-            payment_count: 0,
-            oldest_retained_payment_id: 1,
+            payments: Vec::new(),
             active_payment_id: None,
             daily_usage: legacy_daily_usage,
         };
@@ -1016,7 +1014,6 @@ mod tests {
     #[should_panic(expected = "legacy daily usage contains duplicate UTC days")]
     fn migration_rejects_duplicate_legacy_daily_usage_days() {
         let current_day = FIXTURE_NOW / NANOS_PER_DAY;
-        let payments = LookupMap::new(b"p");
         let legacy = LegacyTapprovedV1 {
             owner_id: account("owner.testnet"),
             agent_id: account("agent.testnet"),
@@ -1028,9 +1025,7 @@ mod tests {
             allowed_recipients: vec![account("merchant.testnet")],
             paused: false,
             next_payment_id: 1,
-            payments,
-            payment_count: 0,
-            oldest_retained_payment_id: 1,
+            payments: Vec::new(),
             active_payment_id: None,
             daily_usage: vec![
                 LegacyDailyUsageV1 { utc_day: current_day, reserved_yocto: 0 },
@@ -1044,7 +1039,6 @@ mod tests {
     #[should_panic(expected = "legacy daily usage exceeds the configured daily limit")]
     fn migration_rejects_legacy_daily_usage_above_the_configured_limit() {
         let current_day = FIXTURE_NOW / NANOS_PER_DAY;
-        let payments = LookupMap::new(b"p");
         let legacy = LegacyTapprovedV1 {
             owner_id: account("owner.testnet"),
             agent_id: account("agent.testnet"),
@@ -1056,9 +1050,7 @@ mod tests {
             allowed_recipients: vec![account("merchant.testnet")],
             paused: false,
             next_payment_id: 1,
-            payments,
-            payment_count: 0,
-            oldest_retained_payment_id: 1,
+            payments: Vec::new(),
             active_payment_id: None,
             daily_usage: vec![
                 LegacyDailyUsageV1 { utc_day: current_day, reserved_yocto: 1_001 },
@@ -1071,8 +1063,6 @@ mod tests {
     #[should_panic(expected = "legacy active payment has no daily reservation record")]
     fn migration_rejects_an_active_payment_without_its_reservation() {
         let current_day = FIXTURE_NOW / NANOS_PER_DAY;
-        let mut payments = LookupMap::new(b"p");
-        payments.insert(42, legacy_payment(42, PaymentStatus::Pending, 50, FIXTURE_NOW));
         let legacy = LegacyTapprovedV1 {
             owner_id: account("owner.testnet"),
             agent_id: account("agent.testnet"),
@@ -1084,9 +1074,7 @@ mod tests {
             allowed_recipients: vec![account("merchant.testnet")],
             paused: false,
             next_payment_id: 43,
-            payments,
-            payment_count: 1,
-            oldest_retained_payment_id: 42,
+            payments: vec![legacy_payment(42, PaymentStatus::Pending, 50, FIXTURE_NOW)],
             active_payment_id: Some(42),
             daily_usage: vec![],
         };
@@ -1985,4 +1973,42 @@ mod tests {
     fn rejects_mainnet() {
         assert!(validate_policy(&[7; 32], 10, 100, 1_000, &[account("merchant.testnet")], "mainnet").is_err());
     }
+
+    #[test]
+    fn migration_deserializes_exact_live_manextech_testnet_state() {
+        use near_sdk::test_utils::VMContextBuilder;
+        use near_sdk::testing_env;
+
+        // Exact raw STATE bytes queried directly from manextech.testnet on NEAR Testnet
+        let raw_base64 = "EQAAAG1hbmV4dGVjaC50ZXN0bmV0EwAAAG1hbmV4LWFnZW50LnRlc3RuZXQgAAAApVKelf8BgMpwlmHZAuzAAPloigaapjXo2Y9Yy6MZW60HAAAAdGVzdG5ldAAAQLK6yeAZHgIAAAAAAAAAAID2SuHHAi0VAAAAAAAAAACA0HZm5w3haQAAAAAAAAEAAAARAAAAbWFuZXh0ZWNoLnRlc3RuZXQABAAAAAAAAAADAAAAAQAAAAAAAAATAAAAbWFuZXgtYWdlbnQudGVzdG5ldBEAAABtYW5leHRlY2gudGVzdG5ldAAAoN7Frck1NgAAAAAAAAABAAAAAAAAAPPauJVd7uMY85Idb6Pu4xgFAAIAAAAAAAAAEwAAAG1hbmV4LWFnZW50LnRlc3RuZXQRAAAAbWFuZXh0ZWNoLnRlc3RuZXQAAKDexa3JNTYAAAAAAAAAAgAAAAAAAAD0EkFSLe/jGPTKpStz7+MYAwADAAAAAAAAABMAAABtYW5leC1hZ2VudC50ZXN0bmV0EQAAAG1hbmV4dGVjaC50ZXN0bmV0AACAZHWTwTM8BAAAAAAAAAMAAAAAAAAArW456bLv4xitJp7C+O/jGAMBAAEAAAAWUQAAAAAAAAAAIEM7QYtpcgQAAAAAAAA=";
+        let raw_bytes = near_sdk::base64::decode(raw_base64).expect("valid base64");
+
+        let legacy = LegacyTapprovedV1::try_from_slice(&raw_bytes).expect("must deserialize live manextech.testnet state");
+        assert_eq!(legacy.owner_id, account("manextech.testnet"));
+        assert_eq!(legacy.agent_id, account("manex-agent.testnet"));
+        assert_eq!(legacy.payments.len(), 3);
+        assert_eq!(legacy.daily_usage.len(), 1);
+        assert_eq!(legacy.daily_usage[0].utc_day, 20758);
+        assert_eq!(legacy.active_payment_id, None);
+
+        testing_env!(VMContextBuilder::new()
+            .current_account_id(account("manextech.testnet"))
+            .predecessor_account_id(account("manextech.testnet"))
+            .block_timestamp(20760 * NANOS_PER_DAY)
+            .build());
+
+        let migrated = migrate_legacy_state(legacy, 20760);
+        let policy = migrated.get_policy();
+        assert_eq!(policy.owner_id, account("manextech.testnet"));
+        assert_eq!(policy.agent_id, account("manex-agent.testnet"));
+        assert_eq!(policy.next_payment_id.0, 4);
+        assert_eq!(migrated.payment_count, 3);
+        assert_eq!(migrated.oldest_retained_payment_id, 1);
+        assert_eq!(migrated.get_payment(1).unwrap().status, PaymentStatus::Expired);
+        assert_eq!(migrated.get_payment(2).unwrap().status, PaymentStatus::Paid);
+        assert_eq!(migrated.get_payment(3).unwrap().status, PaymentStatus::Paid);
+        assert_eq!(migrated.get_daily_usage(20758).spent_yocto.0, 21000000000000000000000);
+        assert_eq!(migrated.get_daily_usage(20758).reserved_yocto.0, 0);
+    }
+
 }

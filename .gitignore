@@ -36,3 +36,6 @@ Thumbs.db
 
 # Local relay state (contains payment idempotency records)
 .tapproved/
+
+*.wasm
+SHA256SUMS.txt
