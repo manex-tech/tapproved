@@ -79,30 +79,101 @@ Tapproved is deployed and fully verified on **NEAR Testnet**:
 - Node.js >= 22.22.2
 - Git
 
-### 1. Install & Run Verification Test Suite
 ```bash
 git clone https://github.com/manex-tech/tapproved.git
 cd tapproved
 npm ci
 npm run check
 ```
-*Runs all 169 Node test assertions, syntax checks across SDK, relay, examples, and dashboard.*
-
-### 2. Run the Autonomous AI Agent Demo
-```bash
-npm run agent:autonomous
-```
-*Simulates the full agent lifecycle: inspects live on-chain policy, executes routine spending, handles high-value hardware gating, and recovers from policy rejections.*
-
-### 3. Launch the Monitoring Dashboard
-```bash
-npm start
-```
-*Open `http://localhost:3000/dashboard` to view real-time treasury balances, daily quota progress, pending approval alerts, payment history, and owner administrative controls.*
+*Runs all 169 Node test assertions, syntax checks across SDK, relay, examples, and dashboard in ~2 seconds.*
 
 ---
 
-## 5. AI Agent SDK
+## 5. Testing & Verification Guide
+
+Tapproved offers five distinct testing pathways covering automated unit tests, simulated agent workflows, real-time UI monitoring, live on-chain queries, and physical hardware interaction.
+
+### Option 1: Full Automated Test Suite (Fast Local Verification)
+Executes all unit tests, cryptographic vector validations, SDK methods, and integration suites:
+```bash
+npm run check
+```
+- **Scope**: 169 tests across Node relay, SDK, protocol vectors, dashboard service, and autonomous agent mocks.
+- **Expected Result**: 100% pass rate in ~2 seconds with zero network calls required.
+
+### Option 2: Autonomous AI Agent Simulation Demo
+Simulates an end-to-end autonomous agent session without needing physical hardware connected:
+```bash
+npm run agent:autonomous
+```
+- **Lifecycle Verified**:
+  1. Agent queries live on-chain spending policy via SDK.
+  2. Agent executes routine micropayments ($\le 0.01$ NEAR) with immediate autonomous approval.
+  3. Agent requests an elevated payment ($> 0.01$ NEAR), transitioning the request to `pending` on-chain.
+  4. Demonstrates handling of simulated physical button timeouts and recovery.
+  5. Simulates an operator physical button press yielding a valid Ed25519 signature and on-chain settlement.
+
+### Option 3: Interactive Real-Time Monitoring Dashboard
+Launches the relay server and the operator web dashboard:
+```bash
+npm start
+```
+- Navigate to: **`http://localhost:3000/dashboard`**
+- **Features to Explore**:
+  - **Live Balances**: Inspect real-time NEAR Testnet balances for `manextech.testnet`.
+  - **Quota Gauge**: Visual progress bar tracking cumulative daily spend against `daily_limit_yocto`.
+  - **Pending Alerts**: Real-time pulsing banner with countdown timer when elevated payments await physical hardware confirmation.
+  - **Payment Explorer**: Live transaction logs with readable NEAR conversions and direct NEAR Explorer links.
+  - **Simulation Controls**: One-click simulated button press and agent spend requests directly from the UI.
+
+### Option 4: Live NEAR Testnet CLI Inspection (Read-Only)
+Inspect the canonical on-chain state directly on NEAR Testnet using `near-cli` without spending gas or modifying contract state:
+
+1. **Inspect Spending Policy:**
+   ```bash
+   near contract call-function as-read-only manextech.testnet get_policy json-args '{}' network-config testnet
+   ```
+
+2. **Inspect Current Daily Quota Usage:**
+   ```bash
+   near contract call-function as-read-only manextech.testnet get_daily_usage json-args '{"day": 20758}' network-config testnet
+   ```
+
+3. **Inspect Latest Settled Payment (#4):**
+   ```bash
+   near contract call-function as-read-only manextech.testnet get_payment json-args '{"payment_id": 4}' network-config testnet
+   ```
+
+4. **Inspect Treasury Storage Staking & Headroom:**
+   ```bash
+   near contract call-function as-read-only manextech.testnet get_storage_metrics json-args '{}' network-config testnet
+   ```
+
+### Option 5: Live Physical Hardware Testing (ESP32 via USB)
+*For operators testing with the physical ESP32-WROOM-32 hardware device:*
+
+1. Connect the ESP32 board to your computer via micro-USB.
+2. Identify the assigned serial port (e.g. `COM7` on Windows, `/dev/ttyUSB0` on Linux/macOS).
+3. Configure your local `.env`:
+   ```ini
+   SERIAL_PORT=COM7
+   SERIAL_BAUD_RATE=115200
+   ```
+4. Start the relay:
+   ```bash
+   npm start
+   ```
+5. In a second terminal, trigger an elevated spending request ($> 0.01$ NEAR):
+   ```bash
+   node scripts/request-spend.js --amount 0.02 --recipient manex-agent.testnet
+   ```
+6. Observe the relay log forwarding the binary frame to the device.
+7. **Press the physical button on GPIO25**.
+8. The ESP32 signs the canonical approval payload with its internal Ed25519 private key, returns the signature over serial, and the relay submits `approve_spend` to `manextech.testnet` for cryptographic verification and settlement.
+
+---
+
+## 6. AI Agent SDK
 
 The official SDK (`sdk/index.js`, `sdk/index.d.ts`) provides clean, strongly-typed interfaces for agentic frameworks:
 
@@ -137,7 +208,7 @@ See the [Agent Integration Guide](docs/AGENT-INTEGRATION.md) for error hierarchi
 
 ---
 
-## 6. Real-Time Dashboard
+## 7. Real-Time Dashboard
 
 The dashboard provides operators with complete situational awareness over agent activity:
 
@@ -150,7 +221,7 @@ The dashboard provides operators with complete situational awareness over agent 
 
 ---
 
-## 7. Security Architecture & Threat Model
+## 8. Security Architecture & Threat Model
 
 | Threat Scenario | Defense & Mitigation | Documented In |
 |---|---|---|
@@ -162,7 +233,7 @@ The dashboard provides operators with complete situational awareness over agent 
 
 ---
 
-## 8. Master Documentation Sitemap
+## 9. Master Documentation Sitemap
 
 - [NEAR Hackathon Submission & Architecture](docs/HACKATHON.md) — Comprehensive hackathon overview, innovation summary, and submission metadata.
 - [Security Threat Model & Analysis](docs/SECURITY-THREAT-MODEL.md) — Formal trust boundaries, threat scenarios, and blast-radius mitigations.
@@ -176,6 +247,6 @@ The dashboard provides operators with complete situational awareness over agent 
 
 ---
 
-## 9. License
+## 10. License
 
 This project is licensed under the [MIT License](LICENSE).
