@@ -4,7 +4,7 @@
 
 **Working rule:** Execute one task at a time. Inspect the actual repository state before changing it, make focused changes, run relevant tests, verify evidence, and record the result before advancing. A task is not complete merely because code was written or a command was attempted.
 
-**Last inspected implementation revision:** `7e17c283b3686e110519cc76ac5047b08dd4dbd2` (E1 sample agent-to-relay integration merge, 2026-11-02)  
+**Last inspected implementation revision:** `1fd9c20fddbe6e9b2f6abef52a5579cfba689af7` (B13 in-place migration for the existing Testnet deployment merged, 2026-11-03)  
 **Canonical network:** NEAR Testnet  
 **Canonical contract/treasury:** `manextech.testnet`  
 **Registered agent:** `manex-agent.testnet`
@@ -22,7 +22,7 @@
 
 ## Current checkpoint
 
-**Active task: B13 add and verify the in-place migration from the deployed Vec-based daily accounting layout.** PR [#60](https://github.com/manex-tech/tapproved/pull/60) is open; do not merge or upgrade until the migration tests and all CI jobs pass. After B13 is merged, resume E2 with a controlled automatically approved Testnet payment.
+**Active task: E2 exercise an automatically approved payment on the existing `manextech.testnet` deployment.** B13's in-place migration implementation is merged and all PR CI jobs passed. Before live upgrade, follow the same-account migration runbook in `TESTNET-DEPLOYMENT.md`, record the live pre-upgrade policy/payment/storage snapshot, then upgrade and invoke `migrate` once. Do not call `new`. A live deployment and Testnet payment are now the intended next operations; record their actual transaction and receipt evidence before advancing E2.
 
 **E1 completed:** PR [#59](https://github.com/manex-tech/tapproved/pull/59) merged as `7e17c283b3686e110519cc76ac5047b08dd4dbd2`; CI run [41523732632](https://github.com/manex-tech/tapproved/actions/runs/41523732632) passed all three jobs. Added `examples/agent-request.js`, a minimal authenticated client for `POST /v1/payment-requests`, with strict environment validation, HTTPS enforcement for non-loopback URLs, caller-supplied stable idempotency keys, and no automatic retries. Added five client tests; Node CI passed 130 tests with zero failures. Added `npm run agent:request`, optional `.env.example` fields and a README quickstart. No live payment request, NEAR transaction, signing or hardware interaction was performed. The next E2 task requires explicit approval for a live Testnet payment/transfer.
 
@@ -68,7 +68,7 @@ C12 is complete and merged in [PR #43](https://github.com/manex-tech/tapproved/p
 - [ ] **B10.** Validate transfer callback gas and failure recovery empirically on Testnet. Code is merged: callback allocation increased to 30 TGas; unit test measures callback gas; owner-only `reconcile_processing_payment` supports carefully verified recovery. **Outstanding:** perform controlled Testnet transfer(s), inspect final transfer and callback receipts, and record actual callback gas burnt. Never reconcile an ambiguous transfer outcome.
 - [x] **B11.** Review and test NEP-297-style lifecycle, policy-update and reconciliation events.
 - [x] **B12.** Run contract tests, release Wasm build, checksum generation and full CI. Latest verified run: 75 Rust tests passed; Node, firmware and contract jobs succeeded.
-- [ ] **B13.** Add and verify an in-place migration from the deployed Vec-based daily accounting state to keyed 90-day accounting. Preserve policy, device key, payment history, active payment and legacy daily totals; require full migration tests and CI before using the migration on `manextech.testnet`.
+- [x] **B13.** Add and verify an in-place migration from the deployed Vec-based daily accounting state to keyed 90-day accounting. PR [#60](https://github.com/manex-tech/tapproved/pull/60) merged as `1fd9c20fddbe6e9b2f6abef52a5579cfba689af7`; latest PR CI run [41599634781](https://github.com/manex-tech/tapproved/actions/runs/41599634781) passed Node, 81 contract tests, release Wasm build/checksum and ESP32 firmware build. Migration tests cover policy/device-key/payment preservation, daily accounting split, retention pruning and inconsistent legacy-state rejection. This verifies the migration implementation, not a live migration; no Wasm upgrade or `migrate` call has been performed.
 
 ### B10 safety requirements
 
@@ -193,6 +193,7 @@ Update this section after each task with the date, commit/PR, tests run, evidenc
 
 | Date | Task | Result / evidence |
 |---|---|---|
+| 2026-11-03 | B13 in-place Testnet contract-state migration | PR #60 merged as `1fd9c20fddbe6e9b2f6abef52a5579cfba689af7`; CI run [41599634781](https://github.com/manex-tech/tapproved/actions/runs/41599634781) passed all three jobs. Added a one-time private migration from the deployed Vec-based daily accounting layout, preserving the same `manextech.testnet` account, owner, registered agent, device key, limits, allowlist, payment map, counters and active payment. Legacy daily totals are split into committed spend and the active reservation; invalid state fails closed. Added a same-account upgrade runbook. No live Wasm upgrade, migration call, signing or transfer was performed. |
 | 2026-11-02 | E1 sample agent-to-relay integration | PR #59 merged as `7e17c283b3686e110519cc76ac5047b08dd4dbd2`; CI run [41523732632](https://github.com/manex-tech/tapproved/actions/runs/41523732632) passed all three jobs. Node suite passed 130/130. Added an authenticated agent request example, strict configuration validation, stable idempotency-key behavior, no automatic retries, npm command and README quickstart. No live payment request, NEAR transaction or hardware interaction was performed. |
 | 2026-11-02 | D13 disconnect, reset and power-loss recovery | PR #58 merged as `35132ff00d588b16b5f035d7cacb21847461abc7`; CI run [41522764615](https://github.com/manex-tech/tapproved/actions/runs/41522764615) passed Node, contract/Wasm and firmware jobs. Relay can explicitly reconnect after unexpected serial close; reset/stale-response tests prove no signature submission without a completed device response; host NVS model rejects all truncated present seed lengths 0–31. Added `docs/DISCONNECT-RESET-POWER-LOSS.md`. No physical unplug, power-cycle, flash erase or board test was performed. |
 | 2026-11-02 | D12 device-key rotation verification | PR #56 merged as `b79b4d1112dd273d36ecde87e38cf9b595a92587`; CI run [41520953304](https://github.com/manex-tech/tapproved/actions/runs/41520953304) passed Node, contract/Wasm and firmware jobs. Contract tests passed 77/77, including successful approval by the rotated key and rejection of the previous key; pending payment and reservation state were preserved. Added `docs/DEVICE-KEY-ROTATION.md`. No live Testnet rotation or hardware modification occurred. |
