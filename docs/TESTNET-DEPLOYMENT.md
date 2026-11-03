@@ -116,3 +116,45 @@ Before any future deployment or account change:
 8. Run a controlled testnet payment and verify the terminal payment view and transfer callback.
 
 Deployment and on-chain transactions require explicit operator approval. This document is a status record, not authorization to deploy.
+
+
+## Completed in-place migration and payment demonstration (2026-11-03)
+
+The contract upgrade, state migration, allowlist addition, and automatic payment demonstration were executed and verified on NEAR Testnet:
+
+1. **Contract Code Deployment:**
+   - Account: `manextech.testnet`
+   - Transaction ID: `4psHQnNteqE8SR6g9dBnSeu4smnpt3hDqXjFkzU3kzkU`
+   - Deployed Code Hash: `Amp87jC1DCJjyA5bsmfEpFQzuqu72Cw7NSLRNk8uh3R5`
+   - SHA-256 of Wasm: `9134050D1CD4E9D34987C331747ABCE2D462BEE30E97E475A8C0CEEE0B000FDC`
+
+2. **State Migration Execution:**
+   - Method: `migrate()` (private, predecessor `manextech.testnet`)
+   - Transaction ID: `4AXh7BECjmMy2X7JCmS8G3UdXbXvJMNzJNDrj6Cq87Sh`
+   - Gas burned: `0.309 Tgas`
+   - Historical state preserved: Payments 1, 2, 3, day 20758 spend (0.021 NEAR), device key `A5529E95FF...`, policy limits.
+   - Idempotency guard: verified; re-calling `migrate()` rejects with `"Smart contract panicked: Tapproved state migration has already been applied"`.
+
+3. **Allowlist Expansion (E2 Prerequisite):**
+   - Recipient added: `manex-agent.testnet`
+   - Transaction ID: `CTT3bGrY1pzw276BTwVotsoP9A9WpnzGj8z5tTXtafDp`
+   - Updated Allowlist: `["manextech.testnet", "manex-agent.testnet"]`
+
+4. **Automatic Payment Request (E2, E3):**
+   - Signer / Agent: `manex-agent.testnet`
+   - Method: `request_spend`
+   - Arguments: `{"recipient_id": "manex-agent.testnet", "amount_yocto": "1000000000000000000000"}` (0.001 NEAR)
+   - Transaction ID: `6FY3y24tZ21Yb8vgDsHkMQU8qqYCuo6ESeJoybLUTFUu`
+   - Assigned Payment ID: `4`, `status: "approved"`, `active_payment_id: 4`
+   - Emitted Events: NEP-297 `payment_requested` and `payment_approved` (method: `automatic`)
+   - Daily Usage (Day 20760): `reserved_yocto: 1000000000000000000000`, `spent_yocto: 0`, `remaining_yocto: 499000000000000000000000`
+
+5. **Automatic Execution and Settlement (E4):**
+   - Method: `execute_approved_spend(4)`
+   - Transaction ID: `C5fZ7UW8TW3nSwv8EhD4gh8GdmUpMdqvCjHAGA1fkUNi`
+   - Callback: `on_transfer_result(4)` settled `Promise::transfer`
+   - Final Payment 4 Status: `"paid"`
+   - Emitted Event: NEP-297 `payment_paid`
+   - Active Payment: reset to `null`
+   - Daily Usage (Day 20760): `reserved_yocto: 0`, `spent_yocto: 1000000000000000000000`
+   - Recipient Balance: `manex-agent.testnet` balance increased from 0.999393 NEAR to 1.000136 NEAR
