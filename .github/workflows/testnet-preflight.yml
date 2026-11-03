@@ -1,4 +1,4 @@
-name: Read-only Testnet migration preflight
+name: Read-only Testnet migration preflight (final deployment check)
 
 on:
   push:
