@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { callViewMethod, getAccountView, getActivePayment, getDailyUsage, getFinalizedBlock, getPayment, getPolicy } from "./near-rpc.js";
+import { callViewMethod, getAccountView, getActivePayment, getDailyUsage, getFinalizedBlock, getPayment, getPolicy, getProtocolConfig } from "./near-rpc.js";
 
 function mockFetch(resultValue, capture = {}) {
   return async (url, init) => {
@@ -33,6 +33,37 @@ test("reads a finalized block header for a consistent preflight snapshot", async
   assert.deepEqual(result, block);
   assert.equal(capture.request.method, "block");
   assert.deepEqual(capture.request.params, { finality: "final" });
+});
+
+
+test("reads storage pricing from protocol configuration at the snapshot block", async () => {
+  const capture = {};
+  const result = await getProtocolConfig({
+    env: {},
+    blockId: "finalized-block-hash",
+    fetchImpl: async (url, init) => {
+      capture.request = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          result: {
+            chain_id: "testnet",
+            protocol_version: 200,
+            runtime_config: { storage_amount_per_byte: "10000000000000000000" }
+          }
+        })
+      };
+    }
+  });
+
+  assert.deepEqual(result, {
+    chain_id: "testnet",
+    protocol_version: 200,
+    storage_amount_per_byte: "10000000000000000000"
+  });
+  assert.equal(capture.request.method, "EXPERIMENTAL_protocol_config");
+  assert.deepEqual(capture.request.params, { block_id: "finalized-block-hash" });
 });
 
 test("reads account balance, code hash and storage usage at a pinned block", async () => {

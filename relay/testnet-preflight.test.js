@@ -34,6 +34,14 @@ function makeRpc(overrides = {}) {
     async getPolicy(options) { captures.blockOptions.push(options.blockId); return policy; },
     async getActivePayment(options) { captures.blockOptions.push(options.blockId); return null; },
     async getPayment() { return null; },
+    async getProtocolConfig(options) {
+      captures.blockOptions.push(options.blockId);
+      return {
+        chain_id: "testnet",
+        protocol_version: 200,
+        storage_amount_per_byte: "10000000000000000000"
+      };
+    },
     async getDailyUsage(day, options) {
       captures.usageDays.push(day);
       captures.blockOptions.push(options.blockId);
@@ -56,8 +64,10 @@ test("collects a block-pinned read-only snapshot of the legacy deployment", asyn
   assert.equal(snapshot.account.storage_usage_bytes, 2048);
   assert.equal(snapshot.policy.agent_id, "manex-agent.testnet");
   assert.equal(snapshot.policy.device_public_key_hex, "07".repeat(32));
+  assert.equal(snapshot.storage_funding.sufficient_for_conservative_estimate, true);
+  assert.equal(snapshot.storage_funding.legacy_daily_buckets_observed, 90);
   assert.equal(snapshot.legacy_daily_usage.length, 90);
-  assert.deepEqual(rpc.captures.blockOptions, Array(93).fill(BLOCK.hash));
+  assert.deepEqual(rpc.captures.blockOptions, Array(94).fill(BLOCK.hash));
   assert.equal(rpc.captures.usageDays.length, 90);
 });
 
@@ -132,6 +142,94 @@ test("discovers legacy daily buckets from every retained payment when payment hi
     entry.expected_used_yocto === "50"
   ));
   assert.ok(rpc.captures.blockOptions.every((hash) => hash === BLOCK.hash));
+});
+
+
+test("blocks migration when the account cannot fund conservative storage growth", async () => {
+  const rpc = makeRpc({
+    async getPolicy(options) {
+      this.captures.blockOptions.push(options.blockId);
+      return {
+        owner_id: "owner.testnet",
+        agent_id: "manex-agent.testnet",
+        device_public_key: Array(32).fill(7),
+        network_id: "testnet",
+        soft_limit_yocto: "100",
+        hard_limit_yocto: "1000",
+        daily_limit_yocto: "5000",
+        allowed_recipients: ["merchant.testnet"],
+        paused: false,
+        next_payment_id: "4"
+      };
+    },
+    async getAccountView(options) {
+      this.captures.blockOptions.push(options.blockId);
+      return {
+        amount: "1",
+        locked: "0",
+        code_hash: "5Z8aA2ExampleContractCodeHashNotZero",
+        storage_usage: 2048
+      };
+    },
+    async getPayment(id) {
+      return {
+        id,
+        created_at_ns: TIMESTAMP,
+        amount_yocto: "10",
+        status: "paid",
+        recipient_id: "merchant.testnet"
+      };
+    }
+  });
+  const snapshot = await collectTestnetPreflight({ rpc, batchDelayMs: 0 });
+
+  assert.equal(snapshot.ready_for_upgrade, false);
+  assert.equal(snapshot.storage_funding.sufficient_for_conservative_estimate, false);
+  assert.ok(snapshot.blockers.some((item) => item.code === "insufficient-storage-funding"));
+});
+
+
+test("blocks migration when the account cannot fund conservative storage growth", async () => {
+  const rpc = makeRpc({
+    async getPolicy(options) {
+      this.captures.blockOptions.push(options.blockId);
+      return {
+        owner_id: "owner.testnet",
+        agent_id: "manex-agent.testnet",
+        device_public_key: Array(32).fill(7),
+        network_id: "testnet",
+        soft_limit_yocto: "100",
+        hard_limit_yocto: "1000",
+        daily_limit_yocto: "5000",
+        allowed_recipients: ["merchant.testnet"],
+        paused: false,
+        next_payment_id: "4"
+      };
+    },
+    async getAccountView(options) {
+      this.captures.blockOptions.push(options.blockId);
+      return {
+        amount: "1",
+        locked: "0",
+        code_hash: "5Z8aA2ExampleContractCodeHashNotZero",
+        storage_usage: 2048
+      };
+    },
+    async getPayment(id) {
+      return {
+        id,
+        created_at_ns: TIMESTAMP,
+        amount_yocto: "10",
+        status: "paid",
+        recipient_id: "merchant.testnet"
+      };
+    }
+  });
+  const snapshot = await collectTestnetPreflight({ rpc, batchDelayMs: 0 });
+
+  assert.equal(snapshot.ready_for_upgrade, false);
+  assert.equal(snapshot.storage_funding.sufficient_for_conservative_estimate, false);
+  assert.ok(snapshot.blockers.some((item) => item.code === "insufficient-storage-funding"));
 });
 
 test("blocks missing retained payment IDs during short-history enumeration", async () => {

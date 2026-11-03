@@ -145,6 +145,37 @@ export async function getFinalizedBlock(options = {}) {
 }
 
 /** Read account balance, deployed code hash and storage at a fixed block. */
+/** Read protocol storage pricing at a finalized block or explicit block hash. */
+export async function getProtocolConfig(options = {}) {
+  const { rpcUrl } = configuration(options.env);
+  if (options.blockId !== undefined &&
+      !(typeof options.blockId === "string" && options.blockId.length > 0)) {
+    throw new TypeError("blockId must be a non-empty block hash");
+  }
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== "function") throw new Error("fetch is unavailable");
+  const response = await fetchReadOnlyRpc(fetchImpl, rpcUrl, {
+    method: "EXPERIMENTAL_protocol_config",
+    params: options.blockId ? { block_id: options.blockId } : { finality: "final" }
+  }, "tapproved-protocol-config");
+  if (!response.ok) throw new Error(`NEAR RPC HTTP ${response.status}`);
+  const payload = await response.json();
+  if (payload.error) {
+    throw new Error(`NEAR RPC error: ${payload.error.message || "unknown error"}`);
+  }
+  const result = payload.result;
+  const storagePrice = result?.runtime_config?.storage_amount_per_byte;
+  if (!result || typeof result.chain_id !== "string" ||
+      typeof storagePrice !== "string" || !/^[0-9]+$/.test(storagePrice)) {
+    throw new Error("NEAR RPC returned an invalid protocol configuration");
+  }
+  return {
+    chain_id: result.chain_id,
+    protocol_version: result.protocol_version,
+    storage_amount_per_byte: storagePrice
+  };
+}
+
 export async function getAccountView(options = {}) {
   const { rpcUrl, contractId } = configuration(options.env);
   if (options.blockId !== undefined &&
