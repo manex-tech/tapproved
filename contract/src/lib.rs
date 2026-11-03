@@ -101,8 +101,6 @@ struct LegacyDailyUsageV1 {
 /// failed, expired, and cancelled payments released their amount. Thus only
 /// the currently active payment remains reserved after migration.
 fn migrate_legacy_state(legacy: LegacyTapprovedV1, current_day: u64) -> Tapproved {
-    use std::collections::BTreeSet;
-
     let LegacyTapprovedV1 {
         owner_id,
         agent_id,
@@ -146,7 +144,6 @@ fn migrate_legacy_state(legacy: LegacyTapprovedV1, current_day: u64) -> Tapprove
     let cutoff_day = current_day.saturating_sub((MAX_RETAINED_DAILY_DAYS - 1) as u64);
     let mut daily_usage = LookupMap::new(b"d");
     let mut retained_daily_days = Vec::new();
-    let mut seen_days = BTreeSet::new();
     let mut found_active_day = active_reservation.is_none();
 
     for legacy_usage in legacy_daily_usage {
@@ -154,13 +151,10 @@ fn migrate_legacy_state(legacy: LegacyTapprovedV1, current_day: u64) -> Tapprove
         if day > current_day {
             env::panic_str("legacy daily usage contains a future UTC day");
         }
-        if !seen_days.insert(day) {
-            env::panic_str("legacy daily usage contains duplicate UTC days");
-        }
 
-        if legacy_usage.reserved_yocto > daily_limit_yocto {
-            env::panic_str("legacy daily usage exceeds the configured daily limit");
-        }
+        // The legacy Vec was never pruned. Skip expired history before doing
+        // duplicate checks or map writes; only the bounded migration window
+        // and the active payment's original day need to survive.
         let active_amount = match active_reservation {
             Some((active_day, amount)) if active_day == day => {
                 found_active_day = true;
@@ -168,13 +162,17 @@ fn migrate_legacy_state(legacy: LegacyTapprovedV1, current_day: u64) -> Tapprove
             }
             _ => 0,
         };
-        let spent = legacy_usage.reserved_yocto.checked_sub(active_amount)
-            .unwrap_or_else(|| env::panic_str("legacy daily usage is below the active reservation"));
-
-        // Retain the rolling 90-day window and any older active reservation.
         if day < cutoff_day && active_amount == 0 {
             continue;
         }
+        if retained_daily_days.contains(&day) {
+            env::panic_str("legacy daily usage contains duplicate UTC days");
+        }
+        if legacy_usage.reserved_yocto > daily_limit_yocto {
+            env::panic_str("legacy daily usage exceeds the configured daily limit");
+        }
+        let spent = legacy_usage.reserved_yocto.checked_sub(active_amount)
+            .unwrap_or_else(|| env::panic_str("legacy daily usage is below the active reservation"));
 
         daily_usage.insert(day, DailyUsage {
             utc_day: day,
@@ -979,6 +977,39 @@ mod tests {
         assert!(!migrated.retained_daily_days.contains(&pruned_day));
         assert_eq!(migrated.get_daily_usage(pruned_day).used_yocto.0, 0);
         assert_eq!(env::storage_read(STATE_VERSION_KEY).as_deref(), Some(CURRENT_STATE_VERSION));
+    }
+
+    #[test]
+    fn migration_discards_unbounded_legacy_history_and_retains_only_the_90_day_window() {
+        let current_day = FIXTURE_NOW / NANOS_PER_DAY;
+        let start_day = current_day - 179;
+        let legacy_daily_usage = (start_day..=current_day)
+            .map(|day| LegacyDailyUsageV1 { utc_day: day, reserved_yocto: 1 })
+            .collect();
+        let legacy = LegacyTapprovedV1 {
+            owner_id: account("owner.testnet"),
+            agent_id: account("agent.testnet"),
+            device_public_key: vec![0xA5; 32],
+            network_id: "testnet".to_string(),
+            soft_limit_yocto: 10,
+            hard_limit_yocto: 100,
+            daily_limit_yocto: 1_000,
+            allowed_recipients: vec![account("merchant.testnet")],
+            paused: false,
+            next_payment_id: 1,
+            payments: LookupMap::new(b"p"),
+            payment_count: 0,
+            oldest_retained_payment_id: 1,
+            active_payment_id: None,
+            daily_usage: legacy_daily_usage,
+        };
+
+        let migrated = migrate_legacy_state(legacy, current_day);
+        assert_eq!(migrated.retained_daily_days.len(), MAX_RETAINED_DAILY_DAYS);
+        assert_eq!(migrated.retained_daily_days.first(), Some(&(current_day - 89)));
+        assert_eq!(migrated.retained_daily_days.last(), Some(&current_day));
+        assert_eq!(migrated.get_daily_usage(current_day - 89).used_yocto.0, 1);
+        assert_eq!(migrated.get_daily_usage(start_day).used_yocto.0, 0);
     }
 
     #[test]
