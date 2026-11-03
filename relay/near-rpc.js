@@ -26,6 +26,79 @@ async function fetchReadOnlyRpc(fetchImpl, rpcUrl, payload, requestId) {
   return response;
 }
 
+/**
+ * Preserve unsafe JSON integer tokens before JSON.parse rounds them to an
+ * IEEE-754 Number. NEAR views may expose legacy u64 fields as raw JSON
+ * numbers; converting those tokens to decimal strings keeps timestamps exact.
+ */
+function parseJsonPreservingLargeIntegers(source) {
+  let output = "";
+  let index = 0;
+  let inString = false;
+  let escaped = false;
+
+  while (index < source.length) {
+    const character = source[index];
+
+    if (inString) {
+      output += character;
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+      output += character;
+      index += 1;
+      continue;
+    }
+
+    if (character === "-" || (character >= "0" && character <= "9")) {
+      const start = index;
+      if (source[index] === "-") index += 1;
+      while (index < source.length && source[index] >= "0" && source[index] <= "9") {
+        index += 1;
+      }
+      if (source[index] === ".") {
+        index += 1;
+        while (index < source.length && source[index] >= "0" && source[index] <= "9") {
+          index += 1;
+        }
+      }
+      if (source[index] === "e" || source[index] === "E") {
+        index += 1;
+        if (source[index] === "+" || source[index] === "-") index += 1;
+        while (index < source.length && source[index] >= "0" && source[index] <= "9") {
+          index += 1;
+        }
+      }
+
+      const token = source.slice(start, index);
+      if (/^-?[0-9]+$/.test(token)) {
+        const integer = BigInt(token);
+        const maxSafe = BigInt(Number.MAX_SAFE_INTEGER);
+        const minSafe = BigInt(Number.MIN_SAFE_INTEGER);
+        output += integer > maxSafe || integer < minSafe ? JSON.stringify(token) : token;
+      } else {
+        output += token;
+      }
+      continue;
+    }
+
+    output += character;
+    index += 1;
+  }
+
+  return JSON.parse(output);
+}
+
 function configuration(env = process.env) {
   const networkId = env.NEAR_NETWORK || DEFAULT_NETWORK_ID;
   const rpcUrl = env.NEAR_RPC_URL || DEFAULT_RPC_URL;
@@ -125,7 +198,7 @@ export async function callViewMethod(methodName, args = {}, options = {}) {
   const payload = await response.json();
   if (payload.error) throw new Error(`NEAR RPC error: ${payload.error.message || "unknown error"}`);
   if (!Array.isArray(payload.result?.result)) throw new Error("NEAR RPC returned an invalid call_function result");
-  return JSON.parse(Buffer.from(payload.result.result).toString("utf8"));
+  return parseJsonPreservingLargeIntegers(Buffer.from(payload.result.result).toString("utf8"));
 }
 
 export async function getPolicy(options) {
