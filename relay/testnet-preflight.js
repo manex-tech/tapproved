@@ -153,6 +153,7 @@ export async function collectTestnetPreflight(options = {}) {
 
   const enumerateAllPayments = nextPaymentId >= 1n &&
     nextPaymentId <= MAX_ENUMERATED_PAYMENT_HISTORY + 1n;
+  const rpcBatchDelayMs = options.batchDelayMs ?? 750;
   const paymentHistoryRecords = [];
   const daysToQuery = new Set([currentDay]);
 
@@ -164,7 +165,7 @@ export async function collectTestnetPreflight(options = {}) {
           return activePaymentRecord;
         }
         return rpc.getPayment(paymentId, blockOptions);
-      });
+      }, rpcBatchDelayMs);
       for (let index = 0; index < records.length; index += 1) {
         const expectedId = paymentIds[index];
         const record = records[index];
@@ -216,7 +217,7 @@ export async function collectTestnetPreflight(options = {}) {
         addBlocker(blockers, "legacy-daily-total-exceeds-limit", `UTC day ${utcDay} exceeds the configured daily limit`);
       }
       return { utc_day: utcDay, legacy_daily_total_yocto: total.toString() };
-    });
+    }, rpcBatchDelayMs);
   } catch (error) {
     addBlocker(blockers, "legacy-daily-usage-read-failed", error.message);
   }
