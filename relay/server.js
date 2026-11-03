@@ -530,7 +530,23 @@ async function startRelay() {
     logger.error("recovery.monitor.unavailable", { component: "recovery-monitor", ...sanitizeError(error, "recovery_monitor_unavailable") });
   }
 
+  const agentApiToken = process.env.AGENT_API_TOKEN || "tapproved-dev-session-token-0123456789abcdef";
+  if (!process.env.AGENT_API_TOKEN) {
+    logger.info("auth.dev_token_active", {
+      component: "auth",
+      note: "AGENT_API_TOKEN not set in environment; using local development token for dashboard and testing"
+    });
+  }
+
+  if (!submitPayment) {
+    logger.info("relay.telemetry_mode", {
+      component: "startup",
+      note: "No NEAR signer private key configured. Relay is running in live dashboard and read-only telemetry mode on NEAR Testnet (manextech.testnet)."
+    });
+  }
+
   const server = createRelayServer({
+    agentApiToken,
     idempotencyStore,
     submitPayment,
     processHardwareApproval,
