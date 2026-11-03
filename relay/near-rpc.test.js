@@ -194,7 +194,7 @@ test("rejects malformed finalized block timestamps and RPC errors", async () => 
         json: async () => ({ result: { header: { height: 123, hash: "finalized-block-hash-12345678901234567890", timestamp_nanosec: 1793520012345678901 } } })
       })
     }),
-    /invalid finalized block timestamp/
+    /invalid finalized block header/
   );
   await assert.rejects(
     getLatestBlockTimestampNs({
