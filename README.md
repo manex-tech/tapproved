@@ -37,7 +37,9 @@ The contract is the policy authority. The relay authenticates agent requests, pe
 | Local simulator | Implemented; uses an ephemeral key not registered on-chain |
 | Agent transaction orchestration | `request_spend`, automatic `execute_approved_spend`, and durable restart recovery for approval/expiry operations implemented; uncertain request attribution is retained for manual review |
 | Serial relay-to-device bridge | Bounded newline-delimited USB serial transport with versioned UUID-correlated request/response frames, ESP32 frame parser validates the canonical agent, pending status, recipient account syntax, positive bounded integers and canonical decimal encodings; one-cycle approval/signature submission is implemented; transaction and receipt status API now provides explicit finality and receipt outcomes |
-| Dashboard | Not implemented |
+| AI Agent SDK & Autonomous Demo | Implemented (`sdk/index.js`, `sdk/index.d.ts`); full client with typed error handling, polling, and autonomous agent demo (`examples/autonomous-agent.js`) |
+| Real-Time Dashboard | Implemented (`dashboard/index.html`); live NEAR Testnet RPC monitoring, daily spending quota progress bar, active pending approval alert, payment history, owner controls, and transaction explorer |
+| Security Threat Model | Implemented (`docs/SECURITY-THREAT-MODEL.md`); comprehensive analysis of agent/hardware compromise, replay resistance, relay DoS, and storage headroom |
 | Independent security audit | Not performed |
 
 The first recorded hardware-gated testnet payment is documented in [the hardware approval milestone](docs/TESTNET-HARDWARE-APPROVAL-MILESTONE.md). That test used the contract account itself as the recipient, so it does not independently prove settlement to an external recipient.
@@ -88,9 +90,11 @@ The client is an integration example, not the Phase F SDK. A live request requir
 
 - **Contract:** `contract/src/lib.rs` owns policy, payment state, reservations, signature verification, transfer promises and callbacks.
 - **Firmware:** `firmware/src/main.cpp` validates the configured contract/network, reconstructs the v1 message, waits for a physical button press and signs with the device Ed25519 key.
-- **Relay:** `relay/server.js` exposes authenticated payment, approval and status APIs; `relay/payment-requests.js` validates requests and persists idempotency; `relay/near-signer.js` and `relay/approval-service.js` enforce separate least-privilege request/execution and hardware-approval keys. `relay/near-rpc.js` queries NEAR views and transaction receipt status; `relay/serial.js` provides bounded, one-at-a-time USB serial approval transport; `relay/recovery-service.js` reconciles interrupted journal operations from canonical contract state without transaction resubmission. `relay/structured-logger.js` emits allowlisted JSON events and sanitized error metadata.
+- **Relay:** `relay/server.js` exposes authenticated payment, approval and status APIs, and serves the live monitoring dashboard; `relay/payment-requests.js` validates requests and persists idempotency; `relay/near-signer.js` and `relay/approval-service.js` enforce separate least-privilege request/execution and hardware-approval keys.
+- **AI Agent SDK:** `sdk/index.js` and `sdk/index.d.ts` provide high-level client interfaces (`TapprovedClient`) for autonomous agents with typed errors and pending-approval notification hooks. See [Agent Integration Guide](docs/AGENT-INTEGRATION.md).
+- **Dashboard:** `dashboard/index.html` provides a modern dark-mode monitoring interface with real-time NEAR Testnet RPC telemetry, daily spending quota visualization, pending approval alerts, payment history, owner management controls, and transaction explorer.
 - **Protocol:** `docs/APPROVAL-PROTOCOL.md` defines the exact signed byte sequence. `protocol/v1-vector.json` is a deterministic interoperability fixture.
-- **Simulator:** `relay/simulator.js` locally demonstrates encoding and signing with a temporary keypair. It cannot authorize an on-chain payment.
+- **Hackathon & Architecture Guide:** [NEAR Hackathon Submission](docs/HACKATHON.md) details the problem, solution, differentiation, and live Testnet verification evidence.
 
 ## Repository setup and checks
 

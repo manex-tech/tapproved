@@ -1,0 +1,36 @@
+{
+  "project_name": "Tapproved",
+  "tagline": "Hardware-backed spending authorization for AI agents on NEAR",
+  "description": "Tapproved enables autonomous AI agents to request payments from a NEAR smart contract treasury under strict policy limits. Routine payments execute automatically within configurable soft limits, while high-value payments strictly require physical human approval via an Ed25519-signing ESP32 hardware device.",
+  "repository": "https://github.com/manex-tech/tapproved",
+  "license": "MIT",
+  "network": "testnet",
+  "canonical_contract": "manextech.testnet",
+  "registered_agent": "manex-agent.testnet",
+  "hardware": {
+    "model": "ESP32-WROOM-32",
+    "approval_button": "GPIO25",
+    "signature_algorithm": "Ed25519"
+  },
+  "deployed_artifacts": {
+    "contract_code_hash": "Amp87jC1DCJjyA5bsmfEpFQzuqu72Cw7NSLRNk8uh3R5",
+    "wasm_sha256": "9134050D1CD4E9D34987C331747ABCE2D462BEE30E97E475A8C0CEEE0B000FDC"
+  },
+  "verified_onchain_evidence": {
+    "contract_deployment": "https://explorer.testnet.near.org/transactions/4psHQnNteqE8SR6g9dBnSeu4smnpt3hDqXjFkzU3kzkU",
+    "state_migration": "https://explorer.testnet.near.org/transactions/4AXh7BECjmMy2X7JCmS8G3UdXbXvJMNzJNDrj6Cq87Sh",
+    "recipient_allowlist_expansion": "https://explorer.testnet.near.org/transactions/CTT3bGrY1pzw276BTwVotsoP9A9WpnzGj8z5tTXtafDp",
+    "payment_request_id_4": "https://explorer.testnet.near.org/transactions/6FY3y24tZ21Yb8vgDsHkMQU8qqYCuo6ESeJoybLUTFUu",
+    "payment_settlement_id_4": "https://explorer.testnet.near.org/transactions/C5fZ7UW8TW3nSwv8EhD4gh8GdmUpMdqvCjHAGA1fkUNi"
+  },
+  "features": [
+    "Hardware-backed human-in-the-loop authorization",
+    "Dual-tier spending policies (soft limit, hard limit, daily quota)",
+    "Idempotent guarded state migration on live Testnet",
+    "Promise-based transfer settlement with automatic reservation accounting",
+    "NEP-297 standard event logging",
+    "Official AI Agent JavaScript/TypeScript SDK with typed errors",
+    "Autonomous demo agent with automatic policy violation handling",
+    "Real-time dark-mode treasury monitoring dashboard and NEAR CLI command generator"
+  ]
+}

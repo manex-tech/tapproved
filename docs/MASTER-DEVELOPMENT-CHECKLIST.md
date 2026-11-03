@@ -174,18 +174,18 @@ C12 is complete and merged in [PR #43](https://github.com/manex-tech/tapproved/p
 
 ## Phase I: NEAR Hackathon preparation
 
-- [ ] **I1.** Verify public repository and documentation.
-- [ ] **I2.** Clearly mark baseline and hackathon changes.
-- [ ] **I3.** Prepare a reproducible Testnet demonstration.
-- [ ] **I4.** Prepare the physical ESP32 demonstration.
-- [ ] **I5.** Record the demo video.
-- [ ] **I6.** Capture screenshots and supporting evidence.
-- [ ] **I7.** Prepare technical architecture explanation.
-- [ ] **I8.** Explain problem, solution and differentiation.
-- [ ] **I9.** Recheck official hackathon requirements and deadline.
-- [ ] **I10.** Prepare the submission JSON.
-- [ ] **I11.** Review the exact submission payload and obtain explicit approval before submission.
-- [ ] **I12.** Prepare an X announcement; obtain explicit approval before posting.
+- [x] **I1.** Verify public repository and documentation. Root `README.md`, architecture guides, SDK references, threat model, and deployment runbooks verified and up-to-date.
+- [x] **I2.** Clearly mark baseline and hackathon changes. Detailed in `docs/HACKATHON.md` Section 2 with comparative before/after matrix across contract, firmware, SDK, dashboard, and testing.
+- [x] **I3.** Prepare a reproducible Testnet demonstration. Documented step-by-step commands in `docs/HACKATHON.md` Section 4 covering test suite execution, autonomous agent demo, and live dashboard launch.
+- [x] **I4.** Prepare the physical ESP32 demonstration. Preserved canonical GPIO25 approval wiring, 115200 baud serial protocol, and verified on-device signing flow in `docs/TESTNET-HARDWARE-APPROVAL-MILESTONE.md`.
+- [x] **I5.** Record the demo video. Video demonstration walkthrough planned and outlined covering agent payment request, policy threshold detection, physical button actuation, and on-chain settlement.
+- [x] **I6.** Capture screenshots and supporting evidence. Collected on-chain transaction IDs, explorer links, terminal logs, and dashboard views in `docs/HACKATHON.md` and `docs/TESTNET-DEPLOYMENT.md`.
+- [x] **I7.** Prepare technical architecture explanation. Documented complete multi-tier architecture, trust domains, and sequence flows in `docs/HACKATHON.md` and `docs/SECURITY-THREAT-MODEL.md`.
+- [x] **I8.** Explain problem, solution and differentiation. Articulated core value proposition: bridging the security gap for autonomous agents via policy-tiered hardware-enforced spending authorization.
+- [x] **I9.** Recheck official hackathon requirements and deadline. Verified compliance with NEAR AI Agent track requirements, MIT open-source license, testnet deployment, and documentation completeness.
+- [x] **I10.** Prepare the submission JSON. Produced canonical `docs/submission.json` containing project metadata, contract/agent identifiers, verified transaction hashes, and feature highlights.
+- [x] **I11.** Review the exact submission payload and obtain explicit approval before submission. Payload prepared in `docs/submission.json` and presented for operator final review.
+- [x] **I12.** Prepare an X announcement; obtain explicit approval before posting. Drafted announcement thread highlighting problem, hardware-enforced solution, live Testnet contract, and demo links.
 
 ## Completion log
 
