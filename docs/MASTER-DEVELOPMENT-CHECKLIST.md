@@ -133,15 +133,15 @@ C12 is complete and merged in [PR #43](https://github.com/manex-tech/tapproved/p
 
 ## Phase F: AI agent integration
 
-- [ ] **F1.** Define a public integration interface.
-- [ ] **F2.** Build a JavaScript/TypeScript SDK.
-- [ ] **F3.** Expose spending-request methods.
-- [ ] **F4.** Expose payment-status methods.
-- [ ] **F5.** Add pending-approval notifications.
-- [ ] **F6.** Handle terminal results and errors.
-- [ ] **F7.** Provide agent integration examples.
-- [ ] **F8.** Build a demo autonomous agent covering allowed and restricted spending.
-- [ ] **F9.** Document integration, idempotency and error behavior.
+- [x] **F1.** Define a public integration interface. Standardized client interface in `sdk/index.js` and TypeScript definitions in `sdk/index.d.ts`, specifying method contracts, parameters, return types, and failure modes.
+- [x] **F2.** Build a JavaScript/TypeScript SDK. Created `sdk/index.js` exporting `TapprovedClient` with URL normalization, token validation, custom fetch injection, and package exports in `package.json`.
+- [x] **F3.** Expose spending-request methods. Implemented `TapprovedClient.requestPayment()` validating recipient NEAR syntax, positive u128 amount ranges, and URL-safe idempotency key formats with `generateIdempotencyKey()`.
+- [x] **F4.** Expose payment-status methods. Implemented `getPayment()`, `getActivePayment()`, `getPolicy()`, and `getTransaction()`.
+- [x] **F5.** Add pending-approval notifications. Implemented `waitForPaymentResolution()` with `onPendingApproval` callback triggered when a payment enters `pending` state awaiting physical ESP32 approval.
+- [x] **F6.** Handle terminal results and errors. Created typed error hierarchy: `TapprovedError`, `AuthenticationError`, `PolicyViolationError`, `IdempotencyConflictError`, `PaymentTerminalError`, `TimeoutError`, and `RelayConnectionError`.
+- [x] **F7.** Provide agent integration examples. Added `examples/agent-request.js` (CLI script) and `examples/autonomous-agent.js` (autonomous agent workflow).
+- [x] **F8.** Build a demo autonomous agent covering allowed and restricted spending. Created `AutonomousAgent` covering routine spending (within soft limit), elevated spending (pending hardware authorization), and policy violation rejection, tested in `examples/autonomous-agent.test.js`.
+- [x] **F9.** Document integration, idempotency and error behavior. Added comprehensive documentation in `docs/AGENT-INTEGRATION.md` covering workflow, errors, idempotency invariants, and polling.
 
 ## Phase G: Dashboard
 
