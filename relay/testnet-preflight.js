@@ -173,7 +173,15 @@ export async function collectTestnetPreflight(options = {}) {
           addBlocker(blockers, "payment-history-gap", `Expected retained payment ${expectedId}, but get_payment returned no matching record`);
           continue;
         }
-        const createdAt = decimal(record.created_at_ns, `payment ${expectedId} creation timestamp`);
+        if (record.created_at_ns === undefined) {
+          addBlocker(
+            blockers,
+            "payment-history-schema-mismatch",
+            `Payment ${expectedId} has no created_at_ns field; returned fields: ${Object.keys(record).join(", ")}`
+          );
+          continue;
+        }
+        const createdAt = decimal(record.created_at_ns, `payment ${expectedId} creation timestamp (type ${typeof record.created_at_ns})`);
         const day = Number(createdAt / NANOS_PER_DAY);
         if (day > currentDay) {
           addBlocker(blockers, "payment-history-future-date", `Payment ${expectedId} has a timestamp later than the finalized block`);
