@@ -19,7 +19,7 @@ function makeRpc(overrides = {}) {
     daily_limit_yocto: "5000",
     allowed_recipients: ["merchant.testnet"],
     paused: false,
-    next_payment_id: "12"
+    next_payment_id: "22"
   };
   const account = {
     amount: "1000000000000000000000000",
@@ -46,7 +46,7 @@ function makeRpc(overrides = {}) {
 
 test("collects a block-pinned read-only snapshot of the legacy deployment", async () => {
   const rpc = makeRpc();
-  const snapshot = await collectTestnetPreflight({ rpc, concurrency: 8 });
+  const snapshot = await collectTestnetPreflight({ rpc, concurrency: 8, batchDelayMs: 0 });
 
   assert.equal(snapshot.read_only, true);
   assert.equal(snapshot.ready_for_upgrade, true);
@@ -118,7 +118,7 @@ test("discovers legacy daily buckets from every retained payment when payment hi
       };
     }
   });
-  const snapshot = await collectTestnetPreflight({ rpc });
+  const snapshot = await collectTestnetPreflight({ rpc, batchDelayMs: 0 });
 
   assert.equal(snapshot.ready_for_upgrade, true);
   assert.equal(snapshot.payment_history_strategy, "enumerate_all_retained_payment_ids");
@@ -163,7 +163,7 @@ test("blocks missing retained payment IDs during short-history enumeration", asy
       };
     }
   });
-  const snapshot = await collectTestnetPreflight({ rpc });
+  const snapshot = await collectTestnetPreflight({ rpc, batchDelayMs: 0 });
   assert.equal(snapshot.ready_for_upgrade, false);
   assert.ok(snapshot.blockers.some((item) => item.code === "payment-history-gap"));
 });
@@ -191,7 +191,7 @@ test("calculates the expected committed spend and active reservation without cha
       };
     }
   });
-  const snapshot = await collectTestnetPreflight({ rpc });
+  const snapshot = await collectTestnetPreflight({ rpc, batchDelayMs: 0 });
   const migratedDay = snapshot.expected_migrated_daily_usage.find((entry) => entry.utc_day === CURRENT_DAY);
 
   assert.equal(snapshot.ready_for_upgrade, true);
@@ -217,7 +217,7 @@ test("blocks when the active payment exceeds its original-day legacy total", asy
       return { utc_day: String(day), reserved_yocto: "20", daily_limit_yocto: "5000" };
     }
   });
-  const snapshot = await collectTestnetPreflight({ rpc });
+  const snapshot = await collectTestnetPreflight({ rpc, batchDelayMs: 0 });
   assert.equal(snapshot.ready_for_upgrade, false);
   assert.ok(snapshot.blockers.some((item) => item.code === "active-reservation-missing"));
 });
@@ -237,7 +237,7 @@ test("blocks an unresolved processing payment", async () => {
       return { utc_day: String(day), reserved_yocto: day === CURRENT_DAY ? "50" : "0", daily_limit_yocto: "5000" };
     }
   });
-  const snapshot = await collectTestnetPreflight({ rpc });
+  const snapshot = await collectTestnetPreflight({ rpc, batchDelayMs: 0 });
   assert.equal(snapshot.ready_for_upgrade, false);
   assert.ok(snapshot.blockers.some((item) => item.code === "processing-payment-unresolved"));
 });
