@@ -30,6 +30,9 @@ function addBlocker(blockers, code, detail) {
 async function inBatches(values, batchSize, run) {
   const results = [];
   for (let offset = 0; offset < values.length; offset += batchSize) {
+    if (offset > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
     const batch = values.slice(offset, offset + batchSize);
     results.push(...await Promise.all(batch.map(run)));
   }
@@ -50,7 +53,7 @@ export async function collectTestnetPreflight(options = {}) {
     getPayment,
     getDailyUsage
   };
-  const concurrency = options.concurrency ?? 8;
+  const concurrency = options.concurrency ?? 1;
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) {
     throw new RangeError("concurrency must be an integer between 1 and 16");
   }
