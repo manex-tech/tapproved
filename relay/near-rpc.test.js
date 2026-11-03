@@ -56,6 +56,36 @@ test("reads account balance, code hash and storage usage at a pinned block", asy
   });
 });
 
+
+test("retries read-only RPC queries after HTTP 429 rate limiting", async () => {
+  const capture = { attempts: 0 };
+  const result = await getDailyUsage(20700, {
+    env: {},
+    fetchImpl: async (url, init) => {
+      capture.attempts += 1;
+      if (capture.attempts === 1) {
+        return {
+          ok: false,
+          status: 429,
+          headers: { get: (name) => name === "retry-after" ? "0" : null },
+          json: async () => ({})
+        };
+      }
+      capture.request = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          result: { result: [...Buffer.from(JSON.stringify({ utc_day: "20700", reserved_yocto: "0", daily_limit_yocto: "5000" }))] }
+        })
+      };
+    }
+  });
+  assert.equal(result.utc_day, "20700");
+  assert.equal(capture.attempts, 2);
+  assert.equal(capture.request.method, "query");
+});
+
 test("reads legacy daily accounting at the same finalized block", async () => {
   const capture = {};
   const result = await getDailyUsage(20700, {
