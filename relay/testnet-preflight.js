@@ -151,7 +151,8 @@ export async function collectTestnetPreflight(options = {}) {
     }
   }
 
-  const enumerateAllPayments = nextPaymentId <= MAX_ENUMERATED_PAYMENT_HISTORY + 1n;
+  const enumerateAllPayments = nextPaymentId >= 1n &&
+    nextPaymentId <= MAX_ENUMERATED_PAYMENT_HISTORY + 1n;
   const paymentHistoryRecords = [];
   const daysToQuery = new Set([currentDay]);
 
