@@ -88,10 +88,38 @@ export function generatePauseCommand(contractId, pause = true) {
 }
 
 /**
+ * Universal base64 encoder (works in browsers and Node.js without Buffer).
+ */
+function toBase64(str) {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(str, "utf8").toString("base64");
+  }
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return globalThis.btoa(binary);
+}
+
+/**
+ * Universal byte-array decoder to UTF-8 string (works in browsers and Node.js without Buffer).
+ */
+function fromByteArray(byteArray) {
+  if (typeof TextDecoder !== "undefined") {
+    return new TextDecoder("utf-8").decode(new Uint8Array(byteArray));
+  }
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(byteArray).toString("utf8");
+  }
+  return String.fromCharCode.apply(null, byteArray);
+}
+
+/**
  * Query a contract view method using standard JSON-RPC.
  */
 export async function queryContractView(rpcUrl, contractId, method, args = {}, fetchImpl = globalThis.fetch) {
-  const argsBase64 = Buffer.from(JSON.stringify(args)).toString("base64");
+  const argsBase64 = toBase64(JSON.stringify(args));
   const response = await fetchImpl(rpcUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -122,7 +150,6 @@ export async function queryContractView(rpcUrl, contractId, method, args = {}, f
     throw new Error("Invalid RPC result format");
   }
 
-  const resultBytes = Buffer.from(json.result.result);
-  const resultStr = resultBytes.toString("utf8");
+  const resultStr = fromByteArray(json.result.result);
   return resultStr ? JSON.parse(resultStr) : null;
 }

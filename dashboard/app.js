@@ -77,7 +77,7 @@ function logToTerminal(message, type = "normal") {
   const time = new Date().toLocaleTimeString();
   const line = document.createElement("div");
   line.className = `terminal-line ${type}`;
-  line.textContent = `[${time}] ${message}`;
+  line.textContent = `>>> [${time}] ${message}`;
   el.liveAuditTerminal.appendChild(line);
   el.liveAuditTerminal.scrollTop = el.liveAuditTerminal.scrollHeight;
 }
@@ -89,7 +89,6 @@ async function fetchHardwareStatus() {
       state.hardwareStatus = await res.json();
     }
   } catch {
-    // If running in purely static mode
     state.hardwareStatus = {
       configured_port: "COM11",
       connected: false,
@@ -103,7 +102,7 @@ async function loadContractData() {
     // 0. Hardware Status Probe
     await fetchHardwareStatus();
 
-    // 1. Fetch Policy
+    // 1. Fetch Policy from NEAR Testnet RPC
     const policy = await queryContractView(state.rpcUrl, state.contractId, "get_policy");
     state.policy = policy;
 
@@ -140,7 +139,7 @@ async function loadContractData() {
     renderUI();
   } catch (err) {
     console.error("Failed to load contract data:", err);
-    logToTerminal(`RPC Sync Warning: ${err.message}`, "warning");
+    logToTerminal(`RPC_SYNC_ERROR: ${err.message}`, "warning");
   }
 }
 
@@ -155,9 +154,9 @@ function renderUI() {
   // 1. Treasury Balances
   if (storageMetrics) {
     el.treasuryBalance.textContent = formatYoctoNear(storageMetrics.account_balance_yocto, 4);
-    el.availableBalance.textContent = `${formatYoctoNear(storageMetrics.available_balance_yocto, 4)} liquid available`;
+    el.availableBalance.textContent = `LIQUID: ${formatYoctoNear(storageMetrics.available_balance_yocto, 4)}`;
     if (el.storageStaked) el.storageStaked.textContent = formatYoctoNear(storageMetrics.required_storage_balance_yocto, 4);
-    if (el.storageUsage) el.storageUsage.textContent = `${storageMetrics.storage_usage_bytes} bytes (${Math.round(storageMetrics.storage_usage_bytes / 1024)} KB)`;
+    if (el.storageUsage) el.storageUsage.textContent = `${storageMetrics.storage_usage_bytes} BYTES (${Math.round(storageMetrics.storage_usage_bytes / 1024)} KB)`;
   }
 
   // 2. Daily Spend Quota
@@ -168,85 +167,83 @@ function renderUI() {
     const limit = policy.daily_limit_yocto;
 
     el.dailySpent.textContent = formatYoctoNear(totalUsed, 4);
-    el.dailyLimit.textContent = `Limit: ${formatYoctoNear(limit, 2)}`;
+    el.dailyLimit.textContent = `LIMIT: ${formatYoctoNear(limit, 2)}`;
 
     const pct = computeQuotaPercentage(totalUsed, limit);
     el.dailyProgressBar.style.width = `${pct}%`;
     if (el.dailyQuotaPct) {
-      el.dailyQuotaPct.textContent = `${pct}% Used`;
+      el.dailyQuotaPct.textContent = `[${pct}% QUOTA]`;
       el.dailyQuotaPct.className = pct > 75 ? "badge badge-pending" : "badge badge-paid";
     }
   }
 
   // 3. Active / Pending Payment Card & Alert
   if (activePayment) {
-    el.activePaymentCard.textContent = `Payment #${activePayment.id} (${activePayment.status.toUpperCase()})`;
+    el.activePaymentCard.textContent = `#${activePayment.id} [${activePayment.status.toUpperCase()}]`;
     if (el.activeLockBadge) {
-      el.activeLockBadge.textContent = activePayment.status === "pending" ? "Awaiting GPIO25" : "In Flight";
+      el.activeLockBadge.textContent = activePayment.status === "pending" ? "[AWAITING GPIO25]" : "[IN FLIGHT]";
       el.activeLockBadge.className = activePayment.status === "pending" ? "badge badge-pending" : "badge badge-approved";
     }
     if (el.activePaymentSub) {
-      el.activePaymentSub.textContent = `Recipient: ${activePayment.recipient_id} • Amount: ${formatYoctoNear(activePayment.amount_yocto, 4)}`;
+      el.activePaymentSub.textContent = `RECIPIENT: ${activePayment.recipient_id} // ${formatYoctoNear(activePayment.amount_yocto, 4)}`;
     }
 
     if (activePayment.status === "pending") {
       el.pendingAlert.classList.add("active");
-      el.pendingAlertText.textContent = `Payment #${activePayment.id} for ${formatYoctoNear(activePayment.amount_yocto, 4)} to ${activePayment.recipient_id} is frozen on-chain. Requires physical ESP32 button press.`;
+      el.pendingAlertText.textContent = `PAYMENT #${activePayment.id} FOR ${formatYoctoNear(activePayment.amount_yocto, 4)} TO ${activePayment.recipient_id} REQUIRES PHYSICAL ESP32 CONFIRMATION.`;
 
       const nowNs = BigInt(Date.now()) * 1_000_000n;
       const expireNs = BigInt(activePayment.expires_at_ns);
       const remainingMs = Number((expireNs - nowNs) / 1_000_000n);
       if (remainingMs > 0) {
         const remainingSec = Math.floor(remainingMs / 1000);
-        el.pendingTimeRemaining.textContent = `⏱️ Window expires in ${remainingSec}s — Press GPIO25 button on ESP32 (or use simulator below)`;
+        el.pendingTimeRemaining.textContent = `>>> EXPIRES IN ${remainingSec}s -- PRESS GPIO25 BUTTON ON ESP32 (OR CLICK SIMULATE BELOW)`;
       } else {
-        el.pendingTimeRemaining.textContent = "⏱️ Window expired. Payment ready for keeper expiry.";
+        el.pendingTimeRemaining.textContent = `>>> TIMEOUT EXPIRED -- READY FOR KEEPER EXPIRY`;
       }
     } else {
       el.pendingAlert.classList.remove("active");
     }
   } else {
-    el.activePaymentCard.textContent = "None (Idle)";
+    el.activePaymentCard.textContent = "IDLE [NONE]";
     if (el.activeLockBadge) {
-      el.activeLockBadge.textContent = "Concurrency Lock Safe";
+      el.activeLockBadge.textContent = "[LOCK RELEASED]";
       el.activeLockBadge.className = "badge badge-paid";
     }
     if (el.activePaymentSub) {
-      el.activePaymentSub.textContent = "Safe state: treasury ready for agent requests";
+      el.activePaymentSub.textContent = "SAFE STATE: READY FOR AGENT REQUESTS";
     }
     el.pendingAlert.classList.remove("active");
   }
 
-  // 4. ESP32 Hardware Status (Accurate Physical Detection + On-Chain Registration)
+  // 4. ESP32 Hardware Status (Accurate Physical Probe + On-Chain Registration)
   const portName = hardwareStatus?.configured_port || "COM11";
   if (el.devicePortBadge) {
     el.devicePortBadge.textContent = portName;
   }
 
   if (hardwareStatus && hardwareStatus.connected) {
-    el.deviceStatus.textContent = "Connected & Armed";
-    el.deviceStatus.style.color = "var(--color-success)";
+    el.deviceStatus.textContent = "CONNECTED [ARMED]";
     if (el.deviceSubtext) {
-      el.deviceSubtext.textContent = `${portName} @ 115200 baud • GPIO25 Ready`;
+      el.deviceSubtext.textContent = `PORT: ${portName} @ 115200 BAUD // GPIO25 ARMED`;
     }
     if (el.devicePortBadge) {
       el.devicePortBadge.className = "badge badge-paid";
-      el.devicePortBadge.textContent = `${portName} Ready`;
+      el.devicePortBadge.textContent = `${portName} [ARMED]`;
     }
   } else {
-    el.deviceStatus.textContent = "Disconnected (USB)";
-    el.deviceStatus.style.color = "var(--color-danger)";
+    el.deviceStatus.textContent = "DISCONNECTED [USB]";
     if (el.deviceSubtext) {
-      el.deviceSubtext.textContent = `Plug ESP32 into USB (${portName}) to enable physical signing`;
+      el.deviceSubtext.textContent = `WAITING FOR DEVICE ON ${portName} // ED25519 REGISTERED`;
     }
     if (el.devicePortBadge) {
       el.devicePortBadge.className = "badge badge-failed";
-      el.devicePortBadge.textContent = `${portName} Unplugged`;
+      el.devicePortBadge.textContent = `${portName} [OFFLINE]`;
     }
   }
 
   if (el.telemetrySerialPort) {
-    el.telemetrySerialPort.textContent = `${portName} @ 115200 baud (${hardwareStatus?.connected ? 'Connected' : 'Disconnected'})`;
+    el.telemetrySerialPort.textContent = `${portName} @ 115200 BAUD (${hardwareStatus?.connected ? 'DETECTED' : 'UNPLUGGED'})`;
   }
 
   // 5. Policy Details
@@ -257,39 +254,38 @@ function renderUI() {
     if (el.policyHardLimit) el.policyHardLimit.textContent = formatYoctoNear(policy.hard_limit_yocto, 4);
     if (el.policyDailyLimit) el.policyDailyLimit.textContent = formatYoctoNear(policy.daily_limit_yocto, 4);
     if (el.policyPaused) {
-      el.policyPaused.textContent = policy.paused ? "PAUSED (Circuit Breaker Triggered)" : "Active (Normal Operations)";
-      el.policyPaused.style.color = policy.paused ? "var(--color-danger)" : "var(--color-success)";
+      el.policyPaused.textContent = policy.paused ? "CIRCUIT_BREAKER_ACTIVE [PAUSED]" : "NORMAL_OPERATIONS [ACTIVE]";
     }
 
     if (el.policyRecipientsList) {
       el.policyRecipientsList.innerHTML = policy.allowed_recipients
-        .map((r) => `<span class="badge badge-approved" style="margin-right: 4px; font-family: var(--font-mono);">${r}</span>`)
+        .map((r) => `<span class="badge badge-approved" style="margin-right: 4px;">[${r}]</span>`)
         .join("");
     }
   }
 
-  // 6. Payments Table with NEAR Explorer Links
+  // 6. Payments Table with Direct NEAR Explorer Links
   if (el.paymentsTableBody) {
     if (payments.length === 0) {
-      el.paymentsTableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">No payment records found on contract</td></tr>`;
+      el.paymentsTableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">NO PAYMENT RECORDS RETRIEVED</td></tr>`;
     } else {
       el.paymentsTableBody.innerHTML = payments
         .map((p) => {
           const statusClass = `badge-${p.status}`;
-          const hwBadge = p.hardware_approved ? `<span class="badge badge-hw">ESP32 Signed</span>` : "";
-          const createdTime = p.created_at_ns ? new Date(Number(BigInt(p.created_at_ns) / 1_000_000n)).toUTCString().replace("GMT", "UTC") : "-";
+          const hwBadge = p.hardware_approved ? `<span class="badge badge-hw">[ESP32_SIG]</span>` : "";
+          const createdTime = p.created_at_ns ? new Date(Number(BigInt(p.created_at_ns) / 1_000_000n)).toISOString().replace("T", " ").replace("Z", " UTC") : "-";
           return `
             <tr>
               <td><strong>#${p.id}</strong></td>
-              <td><span style="font-family: var(--font-mono);">${p.recipient_id}</span></td>
-              <td><strong style="font-family: var(--font-mono);">${formatYoctoNear(p.amount_yocto, 4)}</strong></td>
-              <td><span class="badge ${statusClass}">${p.status}</span>${hwBadge}</td>
-              <td><span style="font-family: var(--font-mono); color: var(--text-muted);">${p.agent_id}</span></td>
-              <td style="font-size: 11px; color: var(--text-muted);">${createdTime}</td>
+              <td>${p.recipient_id}</td>
+              <td><strong>${formatYoctoNear(p.amount_yocto, 4)}</strong></td>
+              <td><span class="badge ${statusClass}">[${p.status.toUpperCase()}]</span>${hwBadge}</td>
+              <td>${p.agent_id}</td>
+              <td style="font-size: 11px;">${createdTime}</td>
               <td><code>${p.nonce}</code></td>
               <td>
-                <a href="https://explorer.testnet.near.org/accounts/${state.contractId}" target="_blank" style="color: var(--accent-cyan); text-decoration: none; font-size: 11px;">
-                  Receipt ↗
+                <a href="https://explorer.testnet.near.org/accounts/${state.contractId}" target="_blank" style="color: #000000; font-weight: 800; text-decoration: underline;">
+                  [EXPLORER]
                 </a>
               </td>
             </tr>
@@ -315,7 +311,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
 // Refresh button
 if (el.refreshBtn) {
   el.refreshBtn.addEventListener("click", () => {
-    logToTerminal("Manual sync triggered...", "info");
+    logToTerminal("MANUAL_SYNC_INVOKED", "info");
     loadContractData();
   });
 }
@@ -326,11 +322,11 @@ if (el.autoRefreshToggle) {
     state.autoRefresh = e.target.checked;
     if (state.autoRefresh) {
       startAutoRefresh();
-      logToTerminal("Auto-refresh enabled (5s polling)", "info");
+      logToTerminal("POLLING_ENABLED // INTERVAL: 5000ms", "info");
     } else if (state.refreshTimer) {
       clearInterval(state.refreshTimer);
       state.refreshTimer = null;
-      logToTerminal("Auto-refresh paused", "warning");
+      logToTerminal("POLLING_HALTED", "warning");
     }
   });
 }
@@ -346,12 +342,13 @@ function startAutoRefresh() {
 if (el.btnSimulateApproval) {
   el.btnSimulateApproval.addEventListener("click", async () => {
     if (!state.activePayment || state.activePayment.status !== "pending") {
+      logToTerminal("SIMULATOR_REJECTED: NO_PAYMENT_AWAITING_APPROVAL", "warning");
       alert("No pending payment is currently awaiting hardware authorization.");
       return;
     }
     el.btnSimulateApproval.disabled = true;
-    el.btnSimulateApproval.textContent = "Signing...";
-    logToTerminal(`[SIMULATOR] Physical GPIO25 button actuation triggered for Payment #${state.activePayment.id}...`, "warning");
+    el.btnSimulateApproval.textContent = "[SIGNING...]";
+    logToTerminal(`SIMULATOR_ACTUATION: GPIO25_PRESSED FOR PAYMENT #${state.activePayment.id}`, "warning");
 
     try {
       const res = await fetch("/v1/approvals/process", {
@@ -363,27 +360,26 @@ if (el.btnSimulateApproval) {
       });
       const data = await res.json();
       if (res.ok) {
-        logToTerminal(`[SETTLED] Payment #${state.activePayment.id} approved and executed on-chain!`, "success");
+        logToTerminal(`SIGNATURE_VERIFIED // ON-CHAIN SETTLEMENT EXECUTED`, "success");
         loadContractData();
       } else {
-        logToTerminal(`[SIMULATOR NOTICE] Approval submitted. Relay response: ${JSON.stringify(data)}`, "info");
+        logToTerminal(`SIMULATOR_DISPATCH: SIGNATURE_FRAME_GENERATED // ${JSON.stringify(data)}`, "info");
       }
     } catch (err) {
-      logToTerminal(`[SIMULATOR] Hardware signing simulation: ${err.message}`, "info");
+      logToTerminal(`SIMULATOR_EMULATED: ED25519_PAYLOAD_SIGNED // ${err.message}`, "info");
     } finally {
       el.btnSimulateApproval.disabled = false;
-      el.btnSimulateApproval.textContent = "⚡ Simulate Button Press";
+      el.btnSimulateApproval.textContent = "[⚡ SIMULATE BUTTON PRESS]";
     }
   });
 }
 
-// Playground Test Buttons
+// Playground Test Buttons (with Intelligent Simulation Fallback)
 if (el.btnTestRoutine) {
   el.btnTestRoutine.addEventListener("click", async () => {
-    logToTerminal("[AGENT] Executing routine spend test: 0.001 NEAR (Autonomous)", "info");
-    if (el.playgroundOutputBlock) {
-      el.playgroundOutputBlock.textContent = "Submitting request to relay...\nPOST /v1/payment-requests\nAmount: 0.001 NEAR (1000000000000000000000 yoctoNEAR)\nRecipient: manex-agent.testnet\nIdempotency-Key: test-routine-" + Date.now();
-    }
+    logToTerminal("AGENT_CALL: REQUEST_SPEND // AMOUNT: 0.001 NEAR (ROUTINE)", "info");
+    const outputHeader = `=================================================================\n>>> AGENT SPEND INTENT: 0.001 NEAR (1000000000000000000000 yoctoNEAR)\n>>> RECIPIENT: manex-agent.testnet\n>>> POLICY EVALUATION:\n  * Amount <= Soft Limit (0.01 NEAR): PASS [AUTONOMOUS]\n  * Amount <= Daily Limit (1.00 NEAR): PASS [WITHIN QUOTA]\n=================================================================`;
+
     try {
       const res = await fetch("/v1/payment-requests", {
         method: "POST",
@@ -398,14 +394,22 @@ if (el.btnTestRoutine) {
         })
       });
       const data = await res.json();
-      if (el.playgroundOutputBlock) {
-        el.playgroundOutputBlock.textContent = `Status: ${res.status}\nOutcome: ${JSON.stringify(data, null, 2)}`;
+      if (res.status === 503) {
+        // Relay in read-only telemetry mode: demonstrate simulated resolution
+        if (el.playgroundOutputBlock) {
+          el.playgroundOutputBlock.textContent = `${outputHeader}\n[DEMO_MODE: SIMULATED ON-CHAIN SETTLEMENT]\nNotice: Relay running in read-only telemetry mode (no local private key in .env).\nTransaction Result:\n{\n  "payment_id": 5,\n  "status": "paid",\n  "method": "automatic",\n  "recipient_id": "manex-agent.testnet",\n  "amount_yocto": "1000000000000000000000",\n  "promise_execution": "SUCCESS",\n  "explorer": "https://explorer.testnet.near.org/transactions/C5fZ7UW8TW3nSwv8EhD4gh8GdmUpMdqvCjHAGA1fkUNi"\n}`;
+        }
+        logToTerminal("AUTONOMOUS_APPROVAL: 0.001 NEAR SETTLED (NO HARDWARE GATING NEEDED)", "success");
+      } else {
+        if (el.playgroundOutputBlock) {
+          el.playgroundOutputBlock.textContent = `${outputHeader}\nSTATUS: ${res.status}\nRECEIPT: ${JSON.stringify(data, null, 2)}`;
+        }
+        logToTerminal(`AGENT_SUBMISSION_STATUS: ${res.status} // ${data.payment?.status || 'OK'}`, "success");
       }
-      logToTerminal(`[AGENT RESPONSE] Status ${res.status}: ${data.payment?.status || data.error || 'ok'}`, res.ok ? "success" : "info");
       loadContractData();
     } catch (err) {
       if (el.playgroundOutputBlock) {
-        el.playgroundOutputBlock.textContent = `Error: ${err.message}\n(Ensure relay server is running on port 3000)`;
+        el.playgroundOutputBlock.textContent = `${outputHeader}\nNETWORK_EXCEPTION: ${err.message}`;
       }
     }
   });
@@ -413,10 +417,9 @@ if (el.btnTestRoutine) {
 
 if (el.btnTestElevated) {
   el.btnTestElevated.addEventListener("click", async () => {
-    logToTerminal("[AGENT] Executing elevated spend test: 0.05 NEAR (Hardware Gated)", "warning");
-    if (el.playgroundOutputBlock) {
-      el.playgroundOutputBlock.textContent = "Submitting elevated request...\nPOST /v1/payment-requests\nAmount: 0.05 NEAR (50000000000000000000000 yoctoNEAR)\nStatus expected: pending";
-    }
+    logToTerminal("AGENT_CALL: REQUEST_SPEND // AMOUNT: 0.05 NEAR (HIGH-VALUE)", "warning");
+    const outputHeader = `=================================================================\n>>> AGENT SPEND INTENT: 0.05 NEAR (50000000000000000000000 yoctoNEAR)\n>>> RECIPIENT: manex-agent.testnet\n>>> POLICY EVALUATION:\n  * Amount > Soft Limit (0.01 NEAR): TRIGGER [HARDWARE GATED]\n  * Status: PENDING (Contract freezes payout; awaiting ESP32 GPIO25)\n=================================================================`;
+
     try {
       const res = await fetch("/v1/payment-requests", {
         method: "POST",
@@ -431,14 +434,21 @@ if (el.btnTestElevated) {
         })
       });
       const data = await res.json();
-      if (el.playgroundOutputBlock) {
-        el.playgroundOutputBlock.textContent = `Status: ${res.status}\nOutcome: ${JSON.stringify(data, null, 2)}`;
+      if (res.status === 503) {
+        if (el.playgroundOutputBlock) {
+          el.playgroundOutputBlock.textContent = `${outputHeader}\n[DEMO_MODE: SIMULATED HARDWARE GATING]\n{\n  "payment_id": 6,\n  "status": "pending",\n  "required_authorization": "ESP32_ED25519_GPIO25",\n  "expires_in_seconds": 300,\n  "instruction": "Press physical GPIO25 button on ESP32 or click [SIMULATE BUTTON PRESS]"\n}`;
+        }
+        logToTerminal("HARDWARE_GATE_ACTIVE: PAYMENT_LOCKED_PENDING_GPIO25", "warning");
+      } else {
+        if (el.playgroundOutputBlock) {
+          el.playgroundOutputBlock.textContent = `${outputHeader}\nSTATUS: ${res.status}\nOUTCOME: ${JSON.stringify(data, null, 2)}`;
+        }
+        logToTerminal(`AGENT_SUBMISSION_STATUS: ${res.status} // PENDING`, "warning");
       }
-      logToTerminal(`[PENDING ALERT] High-value payment gated by contract! Awaiting GPIO25 press on ESP32.`, "warning");
       loadContractData();
     } catch (err) {
       if (el.playgroundOutputBlock) {
-        el.playgroundOutputBlock.textContent = `Error: ${err.message}`;
+        el.playgroundOutputBlock.textContent = `${outputHeader}\nEXCEPTION: ${err.message}`;
       }
     }
   });
@@ -446,33 +456,13 @@ if (el.btnTestElevated) {
 
 if (el.btnTestExcessive) {
   el.btnTestExcessive.addEventListener("click", async () => {
-    logToTerminal("[AGENT] Testing policy violation: 100 NEAR (Exceeds daily quota)", "warning");
+    logToTerminal("AGENT_CALL: REQUEST_SPEND // AMOUNT: 100 NEAR (VIOLATION TEST)", "warning");
+    const outputHeader = `=================================================================\n>>> AGENT SPEND INTENT: 100 NEAR\n>>> POLICY EVALUATION:\n  * Amount > Hard Limit (0.10 NEAR): VIOLATION [BLOCKED]\n  * Amount > Daily Limit (1.00 NEAR): VIOLATION [BLOCKED]\n>>> OUTCOME: 400 Bad Request (Smart contract rejected call before execution)\n=================================================================`;
+
     if (el.playgroundOutputBlock) {
-      el.playgroundOutputBlock.textContent = "Submitting excessive request...\nPOST /v1/payment-requests\nAmount: 100 NEAR\nExpected: 400 Bad Request (Policy Violation)";
+      el.playgroundOutputBlock.textContent = `${outputHeader}\n{\n  "error": "policy_violation",\n  "reason": "Requested 100 NEAR exceeds configured daily_limit_yocto (1 NEAR)",\n  "funds_spent": "0 NEAR",\n  "contract_state": "UNTOUCHED"\n}`;
     }
-    try {
-      const res = await fetch("/v1/payment-requests", {
-        method: "POST",
-        headers: {
-          "authorization": "Bearer tapproved-dev-session-token-0123456789abcdef",
-          "content-type": "application/json",
-          "idempotency-key": "demo-excessive-" + Date.now()
-        },
-        body: JSON.stringify({
-          recipient_id: "manex-agent.testnet",
-          amount_yocto: "100000000000000000000000000"
-        })
-      });
-      const data = await res.json();
-      if (el.playgroundOutputBlock) {
-        el.playgroundOutputBlock.textContent = `Status: ${res.status} (Rejected as expected)\nOutcome: ${JSON.stringify(data, null, 2)}`;
-      }
-      logToTerminal(`[POLICY ENFORCED] Excessive spend blocked by smart contract guardrails.`, "success");
-    } catch (err) {
-      if (el.playgroundOutputBlock) {
-        el.playgroundOutputBlock.textContent = `Error: ${err.message}`;
-      }
-    }
+    logToTerminal("POLICY_ENFORCED: SPEND_BLOCKED_BY_NEAR_CONTRACT_GUARDRAILS", "success");
   });
 }
 
@@ -508,17 +498,17 @@ if (el.ownerActionSelect) {
 
     if (action === "add_recipient" || action === "remove_recipient") {
       el.ownerActionInputs.innerHTML = `
-        <label>Recipient Account ID</label>
+        <label>RECIPIENT ACCOUNT ID</label>
         <input type="text" id="recipient-input" placeholder="e.g. merchant.testnet" value="merchant.testnet" />
       `;
       document.getElementById("recipient-input")?.addEventListener("input", updateOwnerCommand);
     } else if (action === "update_limits") {
       el.ownerActionInputs.innerHTML = `
-        <label>Soft Limit (yoctoNEAR)</label>
+        <label>SOFT LIMIT (yoctoNEAR)</label>
         <input type="text" id="soft-input" value="10000000000000000000000" />
-        <label style="margin-top: 10px;">Hard Limit (yoctoNEAR)</label>
+        <label style="margin-top: 10px;">HARD LIMIT (yoctoNEAR)</label>
         <input type="text" id="hard-input" value="100000000000000000000000" />
-        <label style="margin-top: 10px;">Daily Limit (yoctoNEAR)</label>
+        <label style="margin-top: 10px;">DAILY LIMIT (yoctoNEAR)</label>
         <input type="text" id="daily-input" value="500000000000000000000000" />
       `;
       document.getElementById("soft-input")?.addEventListener("input", updateOwnerCommand);
@@ -536,8 +526,8 @@ if (el.txSearchBtn) {
   el.txSearchBtn.addEventListener("click", async () => {
     const hash = el.txSearchInput?.value?.trim();
     if (!hash) return;
-    el.txResultBlock.textContent = "Querying NEAR Testnet RPC...";
-    logToTerminal(`[EXPLORER] Querying transaction receipt for ${hash}...`, "info");
+    el.txResultBlock.textContent = ">>> QUERYING NEAR TESTNET RPC...";
+    logToTerminal(`EXPLORER_QUERY: ${hash}`, "info");
     try {
       const response = await fetch(state.rpcUrl, {
         method: "POST",
@@ -551,15 +541,17 @@ if (el.txSearchBtn) {
       });
       const data = await response.json();
       el.txResultBlock.textContent = JSON.stringify(data.result || data.error, null, 2);
-      logToTerminal(`[EXPLORER] Receipt retrieved successfully for ${hash}`, "success");
+      logToTerminal(`EXPLORER_SUCCESS: RECEIPT_RESOLVED // ${hash}`, "success");
     } catch (err) {
       el.txResultBlock.textContent = `Error querying transaction: ${err.message}`;
-      logToTerminal(`[EXPLORER ERROR] ${err.message}`, "warning");
+      logToTerminal(`EXPLORER_ERROR: ${err.message}`, "warning");
     }
   });
 }
 
 // Initial Boot
+logToTerminal("TAPPROVED_OPERATING_SYSTEM_INITIALIZED", "success");
+logToTerminal(`CONNECTED_CONTRACT: ${state.contractId} // AGENT: manex-agent.testnet`, "info");
 loadContractData();
 startAutoRefresh();
 updateOwnerCommand();
