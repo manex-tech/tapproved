@@ -158,6 +158,9 @@ fn migrate_legacy_state(legacy: LegacyTapprovedV1, current_day: u64) -> Tapprove
             env::panic_str("legacy daily usage contains duplicate UTC days");
         }
 
+        if legacy_usage.reserved_yocto > daily_limit_yocto {
+            env::panic_str("legacy daily usage exceeds the configured daily limit");
+        }
         let active_amount = match active_reservation {
             Some((active_day, amount)) if active_day == day => {
                 found_active_day = true;
@@ -938,8 +941,14 @@ mod tests {
             ],
         };
         env::state_write(&legacy);
+        drop(legacy); // Flush the legacy store::LookupMap cache into mock storage.
 
-        let migrated = Tapproved::migrate();
+        let mut migrated = Tapproved::migrate();
+        migrated.payments.flush();
+        migrated.daily_usage.flush();
+        env::state_write(&migrated);
+        drop(migrated);
+        let migrated: Tapproved = env::state_read().expect("migrated state must be persisted");
         let policy = migrated.get_policy();
         assert_eq!(policy.owner_id, account("owner.testnet"));
         assert_eq!(policy.agent_id, account("agent.testnet"));
@@ -995,6 +1004,33 @@ mod tests {
             daily_usage: vec![
                 LegacyDailyUsageV1 { utc_day: current_day, reserved_yocto: 0 },
                 LegacyDailyUsageV1 { utc_day: current_day, reserved_yocto: 0 },
+            ],
+        };
+        migrate_legacy_state(legacy, current_day);
+    }
+
+    #[test]
+    #[should_panic(expected = "legacy daily usage exceeds the configured daily limit")]
+    fn migration_rejects_legacy_daily_usage_above_the_configured_limit() {
+        let current_day = FIXTURE_NOW / NANOS_PER_DAY;
+        let payments = LookupMap::new(b"p");
+        let legacy = LegacyTapprovedV1 {
+            owner_id: account("owner.testnet"),
+            agent_id: account("agent.testnet"),
+            device_public_key: vec![0xA5; 32],
+            network_id: "testnet".to_string(),
+            soft_limit_yocto: 10,
+            hard_limit_yocto: 100,
+            daily_limit_yocto: 1_000,
+            allowed_recipients: vec![account("merchant.testnet")],
+            paused: false,
+            next_payment_id: 1,
+            payments,
+            payment_count: 0,
+            oldest_retained_payment_id: 1,
+            active_payment_id: None,
+            daily_usage: vec![
+                LegacyDailyUsageV1 { utc_day: current_day, reserved_yocto: 1_001 },
             ],
         };
         migrate_legacy_state(legacy, current_day);
