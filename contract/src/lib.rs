@@ -10,6 +10,8 @@ const MAX_RETAINED_PAYMENTS: u64 = 1_000;
 const MAX_RETAINED_DAILY_DAYS: usize = 90;
 const MAX_ALLOWED_RECIPIENTS: usize = 100;
 const TRANSFER_CALLBACK_GAS_TGAS: u64 = 30;
+const STATE_VERSION_KEY: &[u8] = b"tapproved:state_version";
+const CURRENT_STATE_VERSION: &[u8] = b"2";
 
 /// Persistent policy and payment authorization state.
 #[near_bindgen]
@@ -63,6 +65,148 @@ struct DailyUsage {
     utc_day: u64,
     spent_yocto: u128,
     reserved_yocto: u128,
+}
+
+/// Exact Borsh layout deployed before keyed 90-day daily accounting.
+/// Keep field order and field types aligned with the pre-migration contract.
+#[derive(BorshDeserialize, BorshSerialize)]
+struct LegacyTapprovedV1 {
+    owner_id: AccountId,
+    agent_id: AccountId,
+    device_public_key: Vec<u8>,
+    network_id: String,
+    soft_limit_yocto: u128,
+    hard_limit_yocto: u128,
+    daily_limit_yocto: u128,
+    allowed_recipients: Vec<AccountId>,
+    paused: bool,
+    next_payment_id: u64,
+    payments: LookupMap<u64, Payment>,
+    payment_count: u64,
+    oldest_retained_payment_id: u64,
+    active_payment_id: Option<u64>,
+    daily_usage: Vec<LegacyDailyUsageV1>,
+}
+
+#[derive(BorshDeserialize, BorshSerialize)]
+struct LegacyDailyUsageV1 {
+    utc_day: u64,
+    reserved_yocto: u128,
+}
+
+/// Convert the deployed Vec-based accounting state while preserving policy,
+/// payment IDs, payment records, and the existing payment-map prefix.
+///
+/// In the legacy contract, successful payments remained in reserved_yocto;
+/// failed, expired, and cancelled payments released their amount. Thus only
+/// the currently active payment remains reserved after migration.
+fn migrate_legacy_state(legacy: LegacyTapprovedV1, current_day: u64) -> Tapproved {
+    use std::collections::BTreeSet;
+
+    let LegacyTapprovedV1 {
+        owner_id,
+        agent_id,
+        device_public_key,
+        network_id,
+        soft_limit_yocto,
+        hard_limit_yocto,
+        daily_limit_yocto,
+        allowed_recipients,
+        paused,
+        next_payment_id,
+        payments,
+        payment_count,
+        oldest_retained_payment_id,
+        active_payment_id,
+        daily_usage: legacy_daily_usage,
+    } = legacy;
+
+    let active_reservation = match active_payment_id {
+        Some(payment_id) => {
+            if payment_id < oldest_retained_payment_id || payment_id >= next_payment_id {
+                env::panic_str("legacy active payment ID is outside the retained payment range");
+            }
+            let payment = payments.get(&payment_id)
+                .cloned()
+                .unwrap_or_else(|| env::panic_str("legacy active payment record is missing"));
+            if payment.id != payment_id || payment.amount_yocto == 0 {
+                env::panic_str("legacy active payment record is inconsistent");
+            }
+            if !matches!(
+                payment.status,
+                PaymentStatus::Pending | PaymentStatus::Approved | PaymentStatus::Processing
+            ) {
+                env::panic_str("legacy active payment is not in a recoverable state");
+            }
+            Some((payment.created_at_ns / NANOS_PER_DAY, payment.amount_yocto))
+        }
+        None => None,
+    };
+
+    let cutoff_day = current_day.saturating_sub((MAX_RETAINED_DAILY_DAYS - 1) as u64);
+    let mut daily_usage = LookupMap::new(b"d");
+    let mut retained_daily_days = Vec::new();
+    let mut seen_days = BTreeSet::new();
+    let mut found_active_day = active_reservation.is_none();
+
+    for legacy_usage in legacy_daily_usage {
+        let day = legacy_usage.utc_day;
+        if day > current_day {
+            env::panic_str("legacy daily usage contains a future UTC day");
+        }
+        if !seen_days.insert(day) {
+            env::panic_str("legacy daily usage contains duplicate UTC days");
+        }
+
+        let active_amount = match active_reservation {
+            Some((active_day, amount)) if active_day == day => {
+                found_active_day = true;
+                amount
+            }
+            _ => 0,
+        };
+        let spent = legacy_usage.reserved_yocto.checked_sub(active_amount)
+            .unwrap_or_else(|| env::panic_str("legacy daily usage is below the active reservation"));
+
+        // Retain the rolling 90-day window and any older active reservation.
+        if day < cutoff_day && active_amount == 0 {
+            continue;
+        }
+
+        daily_usage.insert(day, DailyUsage {
+            utc_day: day,
+            spent_yocto: spent,
+            reserved_yocto: active_amount,
+        });
+        retained_daily_days.push(day);
+    }
+
+    if !found_active_day {
+        env::panic_str("legacy active payment has no daily reservation record");
+    }
+    retained_daily_days.sort_unstable();
+    if retained_daily_days.len() > MAX_RETAINED_DAILY_DAYS + 1 {
+        env::panic_str("legacy daily usage cannot fit the bounded retention index");
+    }
+
+    Tapproved {
+        owner_id,
+        agent_id,
+        device_public_key,
+        network_id,
+        soft_limit_yocto,
+        hard_limit_yocto,
+        daily_limit_yocto,
+        allowed_recipients,
+        paused,
+        next_payment_id,
+        payments,
+        payment_count,
+        oldest_retained_payment_id,
+        active_payment_id,
+        daily_usage,
+        retained_daily_days,
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -132,7 +276,7 @@ impl Tapproved {
         if let Err(reason) = validate_policy(&device_public_key, soft, hard, daily, &allowed_recipients, &network_id) {
             env::panic_str(reason);
         }
-        Self {
+        let state = Self {
             owner_id: env::predecessor_account_id(),
             agent_id,
             device_public_key,
@@ -149,7 +293,25 @@ impl Tapproved {
             active_payment_id: None,
             daily_usage: LookupMap::new(b"d"),
             retained_daily_days: Vec::new(),
+        };
+        env::storage_write(STATE_VERSION_KEY, CURRENT_STATE_VERSION);
+        state
+    }
+
+    /// One-time migration from the deployed Vec-based daily accounting layout.
+    /// The account's own key must call this after the compatible Wasm upgrade.
+    #[private]
+    #[init(ignore_state)]
+    pub fn migrate() -> Self {
+        if env::storage_read(STATE_VERSION_KEY).is_some() {
+            env::panic_str("Tapproved state migration has already been applied");
         }
+        let legacy: LegacyTapprovedV1 = env::state_read()
+            .unwrap_or_else(|| env::panic_str("legacy Tapproved state is missing"));
+        let current_day = env::block_timestamp() / NANOS_PER_DAY;
+        let migrated = migrate_legacy_state(legacy, current_day);
+        env::storage_write(STATE_VERSION_KEY, CURRENT_STATE_VERSION);
+        migrated
     }
 
     /// Pause all new spending requests. Only the policy owner may change this state.
@@ -719,6 +881,149 @@ mod tests {
             .predecessor_account_id(account(predecessor)).build());
         Tapproved::new(account("agent.testnet"), vec![7; 32], U128(10), U128(100), U128(1_000),
             vec![account("merchant.testnet")], "testnet".to_string())
+    }
+
+    fn legacy_payment(id: u64, status: PaymentStatus, amount: u128, created_at_ns: u64) -> Payment {
+        Payment {
+            id,
+            agent_id: account("agent.testnet"),
+            recipient_id: account("merchant.testnet"),
+            amount_yocto: amount,
+            nonce: id,
+            created_at_ns,
+            expires_at_ns: created_at_ns + REQUEST_TTL_NS,
+            status,
+            hardware_approved: false,
+        }
+    }
+
+    #[test]
+    fn migration_preserves_policy_payments_and_splits_legacy_daily_spend() {
+        use near_sdk::test_utils::VMContextBuilder;
+        use near_sdk::testing_env;
+
+        testing_env!(VMContextBuilder::new()
+            .current_account_id(account("tapproved.testnet"))
+            .predecessor_account_id(account("tapproved.testnet"))
+            .block_timestamp(FIXTURE_NOW)
+            .build());
+
+        let current_day = FIXTURE_NOW / NANOS_PER_DAY;
+        let previous_day = current_day - 1;
+        let pruned_day = current_day.saturating_sub(MAX_RETAINED_DAILY_DAYS as u64);
+
+        let mut payments = LookupMap::new(b"p");
+        payments.insert(41, legacy_payment(41, PaymentStatus::Paid, 25, FIXTURE_NOW - 1));
+        payments.insert(42, legacy_payment(42, PaymentStatus::Pending, 50, FIXTURE_NOW));
+
+        let legacy = LegacyTapprovedV1 {
+            owner_id: account("owner.testnet"),
+            agent_id: account("agent.testnet"),
+            device_public_key: vec![0xA5; 32],
+            network_id: "testnet".to_string(),
+            soft_limit_yocto: 10,
+            hard_limit_yocto: 100,
+            daily_limit_yocto: 1_000,
+            allowed_recipients: vec![account("merchant.testnet")],
+            paused: true,
+            next_payment_id: 43,
+            payments,
+            payment_count: 2,
+            oldest_retained_payment_id: 41,
+            active_payment_id: Some(42),
+            daily_usage: vec![
+                LegacyDailyUsageV1 { utc_day: current_day, reserved_yocto: 75 },
+                LegacyDailyUsageV1 { utc_day: previous_day, reserved_yocto: 80 },
+                LegacyDailyUsageV1 { utc_day: pruned_day, reserved_yocto: 90 },
+            ],
+        };
+        env::state_write(&legacy);
+
+        let migrated = Tapproved::migrate();
+        let policy = migrated.get_policy();
+        assert_eq!(policy.owner_id, account("owner.testnet"));
+        assert_eq!(policy.agent_id, account("agent.testnet"));
+        assert_eq!(policy.device_public_key, vec![0xA5; 32]);
+        assert_eq!(policy.network_id, "testnet");
+        assert_eq!(policy.soft_limit_yocto.0, 10);
+        assert_eq!(policy.hard_limit_yocto.0, 100);
+        assert_eq!(policy.daily_limit_yocto.0, 1_000);
+        assert_eq!(policy.allowed_recipients, vec![account("merchant.testnet")]);
+        assert!(policy.paused);
+        assert_eq!(policy.next_payment_id.0, 43);
+
+        assert_eq!(migrated.payment_count, 2);
+        assert_eq!(migrated.oldest_retained_payment_id, 41);
+        assert_eq!(migrated.get_payment(41).unwrap().status, PaymentStatus::Paid);
+        assert_eq!(migrated.get_payment(42).unwrap().status, PaymentStatus::Pending);
+        assert_eq!(migrated.active_payment_id, Some(42));
+
+        let current_usage = migrated.get_daily_usage(current_day);
+        assert_eq!(current_usage.spent_yocto.0, 25);
+        assert_eq!(current_usage.reserved_yocto.0, 50);
+        assert_eq!(current_usage.used_yocto.0, 75);
+        assert_eq!(current_usage.remaining_yocto.0, 925);
+
+        let previous_usage = migrated.get_daily_usage(previous_day);
+        assert_eq!(previous_usage.spent_yocto.0, 80);
+        assert_eq!(previous_usage.reserved_yocto.0, 0);
+        assert!(!migrated.retained_daily_days.contains(&pruned_day));
+        assert_eq!(migrated.get_daily_usage(pruned_day).used_yocto.0, 0);
+        assert_eq!(env::storage_read(STATE_VERSION_KEY).as_deref(), Some(CURRENT_STATE_VERSION));
+    }
+
+    #[test]
+    #[should_panic(expected = "legacy daily usage contains duplicate UTC days")]
+    fn migration_rejects_duplicate_legacy_daily_usage_days() {
+        let current_day = FIXTURE_NOW / NANOS_PER_DAY;
+        let payments = LookupMap::new(b"p");
+        let legacy = LegacyTapprovedV1 {
+            owner_id: account("owner.testnet"),
+            agent_id: account("agent.testnet"),
+            device_public_key: vec![0xA5; 32],
+            network_id: "testnet".to_string(),
+            soft_limit_yocto: 10,
+            hard_limit_yocto: 100,
+            daily_limit_yocto: 1_000,
+            allowed_recipients: vec![account("merchant.testnet")],
+            paused: false,
+            next_payment_id: 1,
+            payments,
+            payment_count: 0,
+            oldest_retained_payment_id: 1,
+            active_payment_id: None,
+            daily_usage: vec![
+                LegacyDailyUsageV1 { utc_day: current_day, reserved_yocto: 0 },
+                LegacyDailyUsageV1 { utc_day: current_day, reserved_yocto: 0 },
+            ],
+        };
+        migrate_legacy_state(legacy, current_day);
+    }
+
+    #[test]
+    #[should_panic(expected = "legacy active payment has no daily reservation record")]
+    fn migration_rejects_an_active_payment_without_its_reservation() {
+        let current_day = FIXTURE_NOW / NANOS_PER_DAY;
+        let mut payments = LookupMap::new(b"p");
+        payments.insert(42, legacy_payment(42, PaymentStatus::Pending, 50, FIXTURE_NOW));
+        let legacy = LegacyTapprovedV1 {
+            owner_id: account("owner.testnet"),
+            agent_id: account("agent.testnet"),
+            device_public_key: vec![0xA5; 32],
+            network_id: "testnet".to_string(),
+            soft_limit_yocto: 10,
+            hard_limit_yocto: 100,
+            daily_limit_yocto: 1_000,
+            allowed_recipients: vec![account("merchant.testnet")],
+            paused: false,
+            next_payment_id: 43,
+            payments,
+            payment_count: 1,
+            oldest_retained_payment_id: 42,
+            active_payment_id: Some(42),
+            daily_usage: vec![],
+        };
+        migrate_legacy_state(legacy, current_day);
     }
 
     fn set_predecessor(predecessor: &str) {
