@@ -1,0 +1,37 @@
+name: Read-only Testnet migration preflight
+
+on:
+  push:
+    branches: [ops/run-testnet-preflight]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Query canonical Testnet state (read-only)
+        id: preflight
+        continue-on-error: true
+        run: npm run testnet:preflight -- --output .tapproved/testnet-preflight.json
+      - name: Upload preflight snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tapproved-testnet-preflight
+          path: .tapproved/testnet-preflight.json
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Fail when preflight is blocked or unavailable
+        if: steps.preflight.outcome == 'failure'
+        run: exit 1
