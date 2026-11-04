@@ -99,24 +99,42 @@ async function fetchHardwareStatus() {
 
 async function loadContractData() {
   try {
-    // 0. Hardware Status Probe
+    // 1. First attempt: Instant local relay summary endpoint (0-10ms response)
+    let summary = null;
+    try {
+      const res = await fetch("/v1/dashboard-summary");
+      if (res.ok) {
+        summary = await res.json();
+      }
+    } catch {
+      summary = null;
+    }
+
+    if (summary && summary.policy) {
+      state.policy = summary.policy;
+      state.storageMetrics = summary.storage_metrics;
+      state.activePayment = summary.active_payment;
+      state.dailyUsage = summary.daily_usage;
+      state.payments = summary.payments || [];
+      state.hardwareStatus = summary.hardware_status;
+      renderUI();
+      return;
+    }
+
+    // 2. Fallback: Direct FastNEAR RPC queries if relay summary is unavailable
     await fetchHardwareStatus();
 
-    // 1. Fetch Policy from NEAR Testnet RPC
     const policy = await queryContractView(state.rpcUrl, state.contractId, "get_policy");
     state.policy = policy;
 
-    // 2. Fetch Storage Metrics
     try {
       state.storageMetrics = await queryContractView(state.rpcUrl, state.contractId, "get_storage_metrics");
     } catch {
       state.storageMetrics = null;
     }
 
-    // 3. Fetch Active Payment
     state.activePayment = await queryContractView(state.rpcUrl, state.contractId, "get_active_payment");
 
-    // 4. Fetch Daily Usage for Today
     const currentDay = Math.floor(Date.now() / 86400000);
     try {
       state.dailyUsage = await queryContractView(state.rpcUrl, state.contractId, "get_daily_usage", { day: currentDay });
@@ -124,10 +142,9 @@ async function loadContractData() {
       state.dailyUsage = null;
     }
 
-    // 5. Fetch Payment History
     const nextPaymentId = Number(policy.next_payment_id || 1);
     const paymentFetches = [];
-    const minId = Math.max(1, nextPaymentId - 20); // Last 20 payments
+    const minId = Math.max(1, nextPaymentId - 15);
     for (let id = minId; id < nextPaymentId; id++) {
       paymentFetches.push(
         queryContractView(state.rpcUrl, state.contractId, "get_payment", { payment_id: id }).catch(() => null)

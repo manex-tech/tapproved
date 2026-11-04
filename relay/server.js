@@ -4,7 +4,7 @@ import { createStructuredLogger, sanitizeError } from "./structured-logger.js";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { readFile } from "node:fs/promises";
-import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy, getTransactionStatus, isValidTransactionHash, TransactionNotFoundError, TransactionQueryValidationError, TransactionWaitTimeoutError } from "./near-rpc.js";
+import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy, getTransactionStatus, isValidTransactionHash, TransactionNotFoundError, TransactionQueryValidationError, TransactionWaitTimeoutError, callViewMethod } from "./near-rpc.js";
 import { createAgentAuthenticator } from "./auth.js";
 import { createNearAgentSigner, createNearApprovalSigner, createNearExpirySigner } from "./near-signer.js";
 import { createPaymentExpiryMonitor, readExpiryMonitorInterval } from "./expiry-service.js";
@@ -145,6 +145,68 @@ function paymentRequestResponse(record, replayed) {
  * disabled unless both a persistent idempotency store and a trusted submit
  * adapter are supplied by the controlled signer integration.
  */
+let cachedDashboardSummary = null;
+let lastSummaryTimestamp = 0;
+
+async function fetchDashboardSummary() {
+  const now = Date.now();
+  if (cachedDashboardSummary && now - lastSummaryTimestamp < 2000) {
+    return cachedDashboardSummary;
+  }
+
+  let ports = [];
+  try {
+    const { SerialPort } = await import("serialport");
+    ports = await SerialPort.list();
+  } catch {
+    ports = [];
+  }
+  const configuredPort = process.env.SERIAL_PORT || null;
+  const isConnected = configuredPort
+    ? ports.some((p) => (p.path || "").toLowerCase() === configuredPort.toLowerCase())
+    : false;
+
+  const currentDay = Math.floor(now / 86400000);
+  const [policy, storageMetrics, activePayment, dailyUsage] = await Promise.all([
+    getPolicy().catch(() => cachedDashboardSummary?.policy || null),
+    callViewMethod("get_storage_metrics").catch(() => cachedDashboardSummary?.storage_metrics || null),
+    getActivePayment().catch(() => null),
+    callViewMethod("get_daily_usage", { day: currentDay }).catch(() => null)
+  ]);
+
+  let payments = cachedDashboardSummary?.payments || [];
+  if (policy?.next_payment_id) {
+    const nextId = Number(policy.next_payment_id);
+    const startId = Math.max(1, nextId - 15);
+    const paymentPromises = [];
+    for (let id = startId; id < nextId; id++) {
+      paymentPromises.push(getPayment(String(id)).catch(() => null));
+    }
+    const results = await Promise.all(paymentPromises);
+    payments = results.filter(Boolean).reverse();
+  }
+
+  cachedDashboardSummary = {
+    network: "testnet",
+    contract_id: DEFAULT_CONTRACT_ID,
+    policy,
+    storage_metrics: storageMetrics,
+    active_payment: activePayment,
+    daily_usage: dailyUsage,
+    payments,
+    hardware_status: {
+      configured_port: configuredPort,
+      connected: isConnected,
+      available_ports: ports.map((p) => ({ path: p.path, manufacturer: p.manufacturer || "Generic" })),
+      baud_rate: Number(process.env.SERIAL_BAUD_RATE || 115200),
+      button_gpio: "GPIO25"
+    },
+    timestamp_ms: now
+  };
+  lastSummaryTimestamp = now;
+  return cachedDashboardSummary;
+}
+
 export function createRelayServer(options = {}) {
   const authenticate = options.authenticate ??
     createAgentAuthenticator({ token: options.agentApiToken ?? process.env.AGENT_API_TOKEN });
@@ -166,7 +228,7 @@ export function createRelayServer(options = {}) {
       const rawPath = (request.url ?? "/").split("?")[0];
       const staticRoutes = new Set([
         "/", "/dashboard", "/dashboard/styles.css", "/dashboard/app.js", "/dashboard/dashboard-service.js",
-        "/health", "/v1/hardware-status", "/v1/payment-requests", "/v1/pending-approvals",
+        "/health", "/v1/hardware-status", "/v1/dashboard-summary", "/v1/payment-requests", "/v1/pending-approvals",
         "/v1/approvals/process", "/v1/recovery/reconcile", "/policy", "/active-payment"
       ]);
       const route = staticRoutes.has(rawPath) ? rawPath
@@ -463,6 +525,11 @@ export function createRelayServer(options = {}) {
     }
 
     try {
+      if (pathname === "/v1/dashboard-summary") {
+        const summary = await fetchDashboardSummary();
+        send(response, 200, summary);
+        return;
+      }
       if (pathname === "/policy") {
         const policy = await getPolicy();
         send(response, 200, { network: "testnet", policy });

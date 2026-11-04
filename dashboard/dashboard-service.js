@@ -3,7 +3,7 @@
  */
 
 export const DEFAULT_CONTRACT_ID = "manextech.testnet";
-export const DEFAULT_RPC_URL = "https://rpc.testnet.near.org";
+export const DEFAULT_RPC_URL = "https://test.rpc.fastnear.com";
 export const ONE_NEAR_YOCTO = 1_000_000_000_000_000_000_000_000n; // 10^24
 
 /**
