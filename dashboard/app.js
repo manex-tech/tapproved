@@ -113,7 +113,9 @@ async function loadContractData() {
     if (summary && summary.policy) {
       state.policy = summary.policy;
       state.storageMetrics = summary.storage_metrics;
-      state.activePayment = summary.active_payment;
+      if (!state.awaitingHardware) {
+        state.activePayment = summary.active_payment;
+      }
       state.dailyUsage = summary.daily_usage;
       state.payments = summary.payments || [];
       state.hardwareStatus = summary.hardware_status;
@@ -351,8 +353,8 @@ if (el.autoRefreshToggle) {
 function startAutoRefresh() {
   if (state.refreshTimer) clearInterval(state.refreshTimer);
   state.refreshTimer = setInterval(() => {
-    if (state.autoRefresh) loadContractData();
-  }, 5000);
+    if (state.autoRefresh && !state.awaitingHardware) loadContractData();
+  }, 1500);
 }
 
 // Simulate Physical Button Press Handler
@@ -436,7 +438,7 @@ if (el.btnTestElevated) {
     logToTerminal("POLICY_EVALUATION: AMOUNT > SOFT_LIMIT (0.01 NEAR) // HARDWARE_GATE_ACTIVE", "warning");
 
     const paymentId = String(Date.now()).slice(-4);
-    // 1. Arm Dashboard UI into PENDING state
+    state.awaitingHardware = true;
     state.activePayment = {
       id: paymentId,
       status: "pending",
@@ -453,34 +455,28 @@ if (el.btnTestElevated) {
     }
     logToTerminal("HARDWARE_CHALLENGE_TRANSMITTED: AWAITING_GPIO25_PRESS", "warning");
 
-    // 2. Dispatch real serial challenge to ESP32
     try {
       const res = await fetch("/v1/playground/hardware-trigger", { method: "POST" });
       const data = await res.json();
+      state.awaitingHardware = false;
+
       if (res.ok && data.status === "signed") {
         logToTerminal("PHYSICAL_BUTTON_PRESS_DETECTED // GPIO25 CONFIRMED", "success");
-        logToTerminal(`ED25519_SIGNATURE_VERIFIED // ${data.signature_hex.slice(0, 16)}...`, "success");
+        logToTerminal(`ED25519_SIGNATURE_VERIFIED // ${(data.signature_hex || "").slice(0, 16)}...`, "success");
         logToTerminal("ON-CHAIN_SETTLEMENT_FINALIZED // 0.05 NEAR PAID", "success");
 
         if (el.playgroundOutputBlock) {
-          el.playgroundOutputBlock.textContent = `${outputHeader}\n[🎉 PHYSICAL BUTTON PRESS CONFIRMED & VERIFIED!]\n{\n  "payment_id": "${data.payment_id}",\n  "status": "paid",\n  "amount_yocto": "${data.amount_yocto}",\n  "recipient_id": "${data.recipient_id}",\n  "physical_hardware_auth": {\n    "device_key": "${data.public_key_hex}",\n    "ed25519_signature": "${data.signature_hex}",\n    "status": "VALID_ON_CHAIN"\n  },\n  "transaction_outcome": "SUCCESS",\n  "settlement": "FINALIZED_ON_TESTNET"\n}`;
+          el.playgroundOutputBlock.textContent = `${outputHeader}\n[🎉 PHYSICAL BUTTON PRESS CONFIRMED & VERIFIED!]\n{\n  "payment_id": "${data.id || paymentId}",\n  "status": "paid",\n  "amount_yocto": "${data.amount_yocto}",\n  "recipient_id": "${data.recipient_id}",\n  "physical_hardware_auth": {\n    "device_key": "${data.public_key_hex}",\n    "ed25519_signature": "${data.signature_hex}",\n    "status": "VALID_ON_CHAIN"\n  },\n  "transaction_outcome": "SUCCESS",\n  "settlement": "FINALIZED_ON_TESTNET"\n}`;
         }
 
-        // Settle payment state
         state.activePayment = null;
-        state.payments.unshift({
-          id: data.payment_id,
-          recipient_id: data.recipient_id,
-          amount_yocto: data.amount_yocto,
-          status: "paid",
-          hardware_approved: true
-        });
-        renderUI();
+        await loadContractData();
         return;
       } else {
         throw new Error(data.error || "Device timed out or rejected");
       }
     } catch (err) {
+      state.awaitingHardware = false;
       logToTerminal(`HARDWARE_GATING_NOTICE: ${err.message}`, "info");
       if (el.playgroundOutputBlock) {
         el.playgroundOutputBlock.textContent = `${outputHeader}\n[AWAITING BUTTON PRESS / HARDWARE STATUS]\n{\n  "payment_id": "${paymentId}",\n  "status": "pending",\n  "required_authorization": "ESP32_ED25519_GPIO25",\n  "instruction": "Press physical GPIO25 button on ESP32 or click [SIMULATE BUTTON PRESS] on the banner above."\n}`;

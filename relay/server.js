@@ -147,10 +147,12 @@ function paymentRequestResponse(record, replayed) {
  */
 let cachedDashboardSummary = null;
 let lastSummaryTimestamp = 0;
+const localPlaygroundPayments = [];
+let localActivePayment = null;
 
 async function fetchDashboardSummary() {
   const now = Date.now();
-  if (cachedDashboardSummary && now - lastSummaryTimestamp < 2000) {
+  if (cachedDashboardSummary && now - lastSummaryTimestamp < 1500) {
     return cachedDashboardSummary;
   }
 
@@ -186,12 +188,24 @@ async function fetchDashboardSummary() {
     payments = results.filter(Boolean).reverse();
   }
 
+  const combinedPayments = [...localPlaygroundPayments, ...payments];
+  const seenIds = new Set();
+  const finalPayments = [];
+  for (const p of combinedPayments) {
+    if (p && !seenIds.has(String(p.id))) {
+      seenIds.add(String(p.id));
+      finalPayments.push(p);
+    }
+  }
+
   cachedDashboardSummary = {
     network: "testnet",
     contract_id: DEFAULT_CONTRACT_ID,
     policy,
     storage_metrics: storageMetrics,
-    active_payment: activePayment,
+    active_payment: localActivePayment || activePayment,
+    daily_usage: dailyUsage,
+    payments: finalPayments,
     daily_usage: dailyUsage,
     payments,
     hardware_status: {
@@ -228,7 +242,7 @@ export function createRelayServer(options = {}) {
       const rawPath = (request.url ?? "/").split("?")[0];
       const staticRoutes = new Set([
         "/", "/dashboard", "/dashboard/styles.css", "/dashboard/app.js", "/dashboard/dashboard-service.js",
-        "/health", "/v1/hardware-status", "/v1/dashboard-summary", "/v1/playground/hardware-trigger", "/v1/payment-requests", "/v1/pending-approvals",
+        "/health", "/v1/hardware-status", "/v1/dashboard-summary", "/v1/playground/hardware-trigger", "/v1/playground/routine-trigger", "/v1/payment-requests", "/v1/pending-approvals",
         "/v1/approvals/process", "/v1/recovery/reconcile", "/policy", "/active-payment"
       ]);
       const route = staticRoutes.has(rawPath) ? rawPath
@@ -400,6 +414,23 @@ export function createRelayServer(options = {}) {
     }
 
 
+    if (request.method === "POST" && pathname === "/v1/playground/routine-trigger") {
+      const paidRecord = {
+        id: String(Date.now()).slice(-6),
+        agent_id: "manex-agent.testnet",
+        recipient_id: "manex-agent.testnet",
+        amount_yocto: "1000000000000000000000",
+        status: "paid",
+        nonce: "1",
+        created_at_ns: String(BigInt(Date.now()) * 1_000_000n),
+        hardware_approved: false
+      };
+      localPlaygroundPayments.unshift(paidRecord);
+      lastSummaryTimestamp = 0;
+      send(response, 200, paidRecord);
+      return;
+    }
+
     if (request.method === "POST" && pathname === "/v1/playground/hardware-trigger") {
       const configuredPort = process.env.SERIAL_PORT || "COM11";
       const baudRate = Number(process.env.SERIAL_BAUD_RATE || 115200);
@@ -416,16 +447,28 @@ export function createRelayServer(options = {}) {
           nonce: "1",
           expires_at_ns: String(BigInt(Date.now() + 300_000) * 1_000_000n)
         };
+        localActivePayment = testPayment;
+        lastSummaryTimestamp = 0;
         const sig = await bridge.requestApproval(testPayment);
-        send(response, 200, {
-          status: "signed",
-          payment_id: testPayment.id,
-          amount_yocto: testPayment.amount_yocto,
+        localActivePayment = null;
+        const paidRecord = {
+          id: testPayment.id,
+          agent_id: testPayment.agent_id,
           recipient_id: testPayment.recipient_id,
+          amount_yocto: testPayment.amount_yocto,
+          status: "paid",
+          nonce: testPayment.nonce,
+          created_at_ns: String(BigInt(Date.now()) * 1_000_000n),
+          hardware_approved: true,
           public_key_hex: sig.public_key_hex,
           signature_hex: sig.signature_hex
-        });
+        };
+        localPlaygroundPayments.unshift(paidRecord);
+        lastSummaryTimestamp = 0;
+        send(response, 200, paidRecord);
       } catch (err) {
+        localActivePayment = null;
+        lastSummaryTimestamp = 0;
         send(response, 500, { error: err.code || err.message });
       } finally {
         if (bridge) {
