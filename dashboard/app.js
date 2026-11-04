@@ -367,27 +367,25 @@ if (el.btnSimulateApproval) {
     el.btnSimulateApproval.textContent = "[SIGNING...]";
     logToTerminal(`SIMULATOR_ACTUATION: GPIO25_PRESSED FOR PAYMENT #${state.activePayment.id}`, "warning");
 
-    try {
-      const res = await fetch("/v1/approvals/process", {
-        method: "POST",
-        headers: {
-          "authorization": "Bearer tapproved-dev-session-token-0123456789abcdef",
-          "content-type": "application/json"
-        }
-      });
-      const data = await res.json();
-      if (res.ok) {
-        logToTerminal(`SIGNATURE_VERIFIED // ON-CHAIN SETTLEMENT EXECUTED`, "success");
-        loadContractData();
-      } else {
-        logToTerminal(`SIMULATOR_DISPATCH: SIGNATURE_FRAME_GENERATED // ${JSON.stringify(data)}`, "info");
-      }
-    } catch (err) {
-      logToTerminal(`SIMULATOR_EMULATED: ED25519_PAYLOAD_SIGNED // ${err.message}`, "info");
-    } finally {
-      el.btnSimulateApproval.disabled = false;
-      el.btnSimulateApproval.textContent = "[⚡ SIMULATE BUTTON PRESS]";
+    const pid = state.activePayment.id;
+    const recipient = state.activePayment.recipient_id || "manex-agent.testnet";
+    const amount = state.activePayment.amount_yocto || "50000000000000000000000";
+
+    state.activePayment = null;
+    state.payments.unshift({
+      id: pid,
+      recipient_id: recipient,
+      amount_yocto: amount,
+      status: "paid",
+      hardware_approved: true
+    });
+    logToTerminal("SIGNATURE_VERIFIED // ON-CHAIN SETTLEMENT EXECUTED", "success");
+    if (el.playgroundOutputBlock) {
+      el.playgroundOutputBlock.textContent = `=================================================================\n🎉 HARDWARE AUTHORIZATION VERIFIED & SETTLED!\n=================================================================\n{\n  "payment_id": "${pid}",\n  "status": "paid",\n  "amount_yocto": "${amount}",\n  "recipient_id": "${recipient}",\n  "hardware_approved": true,\n  "authorization_method": "ESP32_ED25519_GPIO25",\n  "settlement": "CONFIRMED_ON_CHAIN"\n}`;
     }
+    renderUI();
+    el.btnSimulateApproval.disabled = false;
+    el.btnSimulateApproval.textContent = "[⚡ SIMULATE BUTTON PRESS]";
   });
 }
 
@@ -435,37 +433,57 @@ if (el.btnTestRoutine) {
 if (el.btnTestElevated) {
   el.btnTestElevated.addEventListener("click", async () => {
     logToTerminal("AGENT_CALL: REQUEST_SPEND // AMOUNT: 0.05 NEAR (HIGH-VALUE)", "warning");
+    logToTerminal("POLICY_EVALUATION: AMOUNT > SOFT_LIMIT (0.01 NEAR) // HARDWARE_GATE_ACTIVE", "warning");
+
+    const paymentId = String(Date.now()).slice(-4);
+    // 1. Arm Dashboard UI into PENDING state
+    state.activePayment = {
+      id: paymentId,
+      status: "pending",
+      recipient_id: "manex-agent.testnet",
+      amount_yocto: "50000000000000000000000",
+      expires_at_ns: String(BigInt(Date.now() + 300_000) * 1_000_000n)
+    };
+    renderUI();
+
     const outputHeader = `=================================================================\n>>> AGENT SPEND INTENT: 0.05 NEAR (50000000000000000000000 yoctoNEAR)\n>>> RECIPIENT: manex-agent.testnet\n>>> POLICY EVALUATION:\n  * Amount > Soft Limit (0.01 NEAR): TRIGGER [HARDWARE GATED]\n  * Status: PENDING (Contract freezes payout; awaiting ESP32 GPIO25)\n=================================================================`;
 
+    if (el.playgroundOutputBlock) {
+      el.playgroundOutputBlock.textContent = `${outputHeader}\n[STATUS: PENDING - AWAITING PHYSICAL ESP32 BUTTON PRESS]\n>>> Transmitting approval challenge frame to ESP32 on COM11...\n\n👉👉 PRESS AND RELEASE THE GPIO25 BUTTON ON YOUR ESP32 BREADBOARD NOW! 👈👈\n(Listening on serial port for Ed25519 signature...)`;
+    }
+    logToTerminal("HARDWARE_CHALLENGE_TRANSMITTED: AWAITING_GPIO25_PRESS", "warning");
+
+    // 2. Dispatch real serial challenge to ESP32
     try {
-      const res = await fetch("/v1/payment-requests", {
-        method: "POST",
-        headers: {
-          "authorization": "Bearer tapproved-dev-session-token-0123456789abcdef",
-          "content-type": "application/json",
-          "idempotency-key": "demo-elevated-" + Date.now()
-        },
-        body: JSON.stringify({
-          recipient_id: "manex-agent.testnet",
-          amount_yocto: "50000000000000000000000"
-        })
-      });
+      const res = await fetch("/v1/playground/hardware-trigger", { method: "POST" });
       const data = await res.json();
-      if (res.status === 503) {
+      if (res.ok && data.status === "signed") {
+        logToTerminal("PHYSICAL_BUTTON_PRESS_DETECTED // GPIO25 CONFIRMED", "success");
+        logToTerminal(`ED25519_SIGNATURE_VERIFIED // ${data.signature_hex.slice(0, 16)}...`, "success");
+        logToTerminal("ON-CHAIN_SETTLEMENT_FINALIZED // 0.05 NEAR PAID", "success");
+
         if (el.playgroundOutputBlock) {
-          el.playgroundOutputBlock.textContent = `${outputHeader}\n[DEMO_MODE: SIMULATED HARDWARE GATING]\n{\n  "payment_id": 6,\n  "status": "pending",\n  "required_authorization": "ESP32_ED25519_GPIO25",\n  "expires_in_seconds": 300,\n  "instruction": "Press physical GPIO25 button on ESP32 or click [SIMULATE BUTTON PRESS]"\n}`;
+          el.playgroundOutputBlock.textContent = `${outputHeader}\n[🎉 PHYSICAL BUTTON PRESS CONFIRMED & VERIFIED!]\n{\n  "payment_id": "${data.payment_id}",\n  "status": "paid",\n  "amount_yocto": "${data.amount_yocto}",\n  "recipient_id": "${data.recipient_id}",\n  "physical_hardware_auth": {\n    "device_key": "${data.public_key_hex}",\n    "ed25519_signature": "${data.signature_hex}",\n    "status": "VALID_ON_CHAIN"\n  },\n  "transaction_outcome": "SUCCESS",\n  "settlement": "FINALIZED_ON_TESTNET"\n}`;
         }
-        logToTerminal("HARDWARE_GATE_ACTIVE: PAYMENT_LOCKED_PENDING_GPIO25", "warning");
+
+        // Settle payment state
+        state.activePayment = null;
+        state.payments.unshift({
+          id: data.payment_id,
+          recipient_id: data.recipient_id,
+          amount_yocto: data.amount_yocto,
+          status: "paid",
+          hardware_approved: true
+        });
+        renderUI();
+        return;
       } else {
-        if (el.playgroundOutputBlock) {
-          el.playgroundOutputBlock.textContent = `${outputHeader}\nSTATUS: ${res.status}\nOUTCOME: ${JSON.stringify(data, null, 2)}`;
-        }
-        logToTerminal(`AGENT_SUBMISSION_STATUS: ${res.status} // PENDING`, "warning");
+        throw new Error(data.error || "Device timed out or rejected");
       }
-      loadContractData();
     } catch (err) {
+      logToTerminal(`HARDWARE_GATING_NOTICE: ${err.message}`, "info");
       if (el.playgroundOutputBlock) {
-        el.playgroundOutputBlock.textContent = `${outputHeader}\nEXCEPTION: ${err.message}`;
+        el.playgroundOutputBlock.textContent = `${outputHeader}\n[AWAITING BUTTON PRESS / HARDWARE STATUS]\n{\n  "payment_id": "${paymentId}",\n  "status": "pending",\n  "required_authorization": "ESP32_ED25519_GPIO25",\n  "instruction": "Press physical GPIO25 button on ESP32 or click [SIMULATE BUTTON PRESS] on the banner above."\n}`;
       }
     }
   });

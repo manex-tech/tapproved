@@ -228,7 +228,7 @@ export function createRelayServer(options = {}) {
       const rawPath = (request.url ?? "/").split("?")[0];
       const staticRoutes = new Set([
         "/", "/dashboard", "/dashboard/styles.css", "/dashboard/app.js", "/dashboard/dashboard-service.js",
-        "/health", "/v1/hardware-status", "/v1/dashboard-summary", "/v1/payment-requests", "/v1/pending-approvals",
+        "/health", "/v1/hardware-status", "/v1/dashboard-summary", "/v1/playground/hardware-trigger", "/v1/payment-requests", "/v1/pending-approvals",
         "/v1/approvals/process", "/v1/recovery/reconcile", "/policy", "/active-payment"
       ]);
       const route = staticRoutes.has(rawPath) ? rawPath
@@ -399,6 +399,41 @@ export function createRelayServer(options = {}) {
       return;
     }
 
+
+    if (request.method === "POST" && pathname === "/v1/playground/hardware-trigger") {
+      const configuredPort = process.env.SERIAL_PORT || "COM11";
+      const baudRate = Number(process.env.SERIAL_BAUD_RATE || 115200);
+      let bridge = null;
+      try {
+        bridge = createSerialBridge({ path: configuredPort, baudRate, timeoutMs: 35000 });
+        await bridge.connect();
+        const testPayment = {
+          id: String(Date.now()).slice(-6),
+          status: "pending",
+          agent_id: "manex-agent.testnet",
+          recipient_id: "manex-agent.testnet",
+          amount_yocto: "50000000000000000000000",
+          nonce: "1",
+          expires_at_ns: String(BigInt(Date.now() + 300_000) * 1_000_000n)
+        };
+        const sig = await bridge.requestApproval(testPayment);
+        send(response, 200, {
+          status: "signed",
+          payment_id: testPayment.id,
+          amount_yocto: testPayment.amount_yocto,
+          recipient_id: testPayment.recipient_id,
+          public_key_hex: sig.public_key_hex,
+          signature_hex: sig.signature_hex
+        });
+      } catch (err) {
+        send(response, 500, { error: err.code || err.message });
+      } finally {
+        if (bridge) {
+          try { await bridge.disconnect(); } catch {}
+        }
+      }
+      return;
+    }
 
     if (request.method === "POST" && pathname === "/v1/approvals/process") {
       if (!authenticate(request)) {
