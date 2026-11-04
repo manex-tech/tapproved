@@ -23,7 +23,7 @@ Tapproved started as an experimental prototype. During the hackathon, we transfo
 | **ESP32 Firmware** | Basic serial prototype targeting wrong contract. | Re-aligned to `manextech.testnet`; extracted testable C++ encoder with byte-for-byte protocol test vector parity; implemented debounced hardware button state machine (held-at-arrival rejection); implemented volatile scope-bound zeroizing memory buffers. |
 | **AI Agent SDK** | Basic one-off request script. | Built production-grade JavaScript/TypeScript SDK (`sdk/index.js`, `sdk/index.d.ts`) with typed error hierarchy (`AuthenticationError`, `PolicyViolationError`, `IdempotencyConflictError`), URL normalization, and `waitForPaymentResolution` with pending-approval event hooks. |
 | **Autonomous Agent Demo** | None. | Created `examples/autonomous-agent.js` demonstrating autonomous routine payments, high-value payment hardware gating, and automated policy violation rejection. |
-| **Monitoring Dashboard** | Non-existent (`dashboard/.gitkeep`). | Built full dark-mode responsive monitoring dashboard (`dashboard/`) with live NEAR Testnet RPC integration, daily spend progress bar, real-time pending approval alert, payment history, owner management command generator, and transaction receipt explorer. |
+| **Monitoring Dashboard** | Non-existent (`dashboard/.gitkeep`). | Built high-contrast monochrome hacker terminal monitoring dashboard (`dashboard/`) with live NEAR Testnet RPC integration, daily spend progress bar, real-time pending approval alert, payment history, owner management command generator, and transaction receipt explorer. |
 | **Security & Threats** | Ad-hoc documentation. | Produced formal Threat Model & Blast Radius Analysis (`docs/SECURITY-THREAT-MODEL.md`) analyzing agent-key theft, hardware-key extraction, replay resistance, relay compromise, and storage exhaustion. |
 
 ---
@@ -37,7 +37,7 @@ All components run live on **NEAR Testnet**:
 - **Deployed Contract Code Hash**: `Amp87jC1DCJjyA5bsmfEpFQzuqu72Cw7NSLRNk8uh3R5`
 - **Contract Code Deployment Tx**: [`4psHQnNteqE8SR6g9dBnSeu4smnpt3hDqXjFkzU3kzkU`](https://explorer.testnet.near.org/transactions/4psHQnNteqE8SR6g9dBnSeu4smnpt3hDqXjFkzU3kzkU)
 - **In-Place State Migration Tx**: [`4AXh7BECjmMy2X7JCmS8G3UdXbXvJMNzJNDrj6Cq87Sh`](https://explorer.testnet.near.org/transactions/4AXh7BECjmMy2X7JCmS8G3UdXbXvJMNzJNDrj6Cq87Sh)
-- **Recipient Allowlist Expansion Tx**: [`CTT3bGrY1pzw276BTwVotsoP9A9WpnzGj8z5tTXtafDp`](https://explorer.testnet.near.org/transactions/4CTT3bGrY1pzw276BTwVotsoP9A9WpnzGj8z5tTXtafDp)
+- **Recipient Allowlist Expansion Tx**: [`CTT3bGrY1pzw276BTwVotsoP9A9WpnzGj8z5tTXtafDp`](https://explorer.testnet.near.org/transactions/CTT3bGrY1pzw276BTwVotsoP9A9WpnzGj8z5tTXtafDp)
 - **Live Automatic Payment Request (ID #4) Tx**: [`6FY3y24tZ21Yb8vgDsHkMQU8qqYCuo6ESeJoybLUTFUu`](https://explorer.testnet.near.org/transactions/6FY3y24tZ21Yb8vgDsHkMQU8qqYCuo6ESeJoybLUTFUu)
 - **Automatic Execution & Promise Settlement Tx**: [`C5fZ7UW8TW3nSwv8EhD4gh8GdmUpMdqvCjHAGA1fkUNi`](https://explorer.testnet.near.org/transactions/C5fZ7UW8TW3nSwv8EhD4gh8GdmUpMdqvCjHAGA1fkUNi)
 - **First Hardware-Gated Payment (ID #3) Documented**: [`docs/TESTNET-HARDWARE-APPROVAL-MILESTONE.md`](TESTNET-HARDWARE-APPROVAL-MILESTONE.md)

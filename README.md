@@ -153,23 +153,23 @@ Inspect the canonical on-chain state directly on NEAR Testnet using `near-cli` w
 *For operators testing with the physical ESP32-WROOM-32 hardware device:*
 
 1. Connect the ESP32 board to your computer via micro-USB.
-2. Identify the assigned serial port (e.g. `COM7` on Windows, `/dev/ttyUSB0` on Linux/macOS).
-3. Configure your local `.env`:
+2. Identify the assigned serial port (e.g. `COM11` on Windows, `/dev/ttyUSB0` on Linux/macOS).
+3. Wire a momentary push button between **GPIO 25** and **GND** (ESP32 internal pull-up is active; no external resistor required).
+4. Run the automated hardware verification utility:
+   ```bash
+   npm run test:hardware
+   ```
+   *Transmits a live approval challenge over serial. Press and release the physical button to verify the on-device Ed25519 signature in real time!*
+5. Configure your local `.env`:
    ```ini
-   SERIAL_PORT=COM7
+   SERIAL_PORT=COM11
    SERIAL_BAUD_RATE=115200
    ```
-4. Start the relay:
+6. Start the relay:
    ```bash
    npm start
    ```
-5. In a second terminal, trigger an elevated spending request ($> 0.01$ NEAR):
-   ```bash
-   node scripts/request-spend.js --amount 0.02 --recipient manex-agent.testnet
-   ```
-6. Observe the relay log forwarding the binary frame to the device.
-7. **Press the physical button on GPIO25**.
-8. The ESP32 signs the canonical approval payload with its internal Ed25519 private key, returns the signature over serial, and the relay submits `approve_spend` to `manextech.testnet` for cryptographic verification and settlement.
+7. Open **`http://localhost:3000/dashboard`**, navigate to **`[02_AGENT_PLAYGROUND]`**, and click **`[TEST ELEVATED SPEND (0.05 NEAR)]`**. Press the GPIO25 button on your breadboard to watch the real-time hardware signature capture and instant ledger settlement!
 
 ---
 
