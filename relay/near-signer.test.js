@@ -21,7 +21,7 @@ const env = {
   NEAR_NETWORK: "testnet",
   NEAR_CONTRACT_ID: CANONICAL_CONTRACT_ID,
   NEAR_SIGNER_ACCOUNT_ID: CANONICAL_AGENT_ID,
-  NEAR_RPC_URL: "https://rpc.testnet.near.org",
+  NEAR_RPC_URL: "https://test.rpc.fastnear.com",
   NEAR_SIGNER_PRIVATE_KEY: secret
 };
 
@@ -47,7 +47,7 @@ test("signer configuration is locked to canonical testnet contract and agent", (
     networkId: "testnet",
     contractId: CANONICAL_CONTRACT_ID,
     agentId: CANONICAL_AGENT_ID,
-    rpcUrl: "https://rpc.testnet.near.org",
+    rpcUrl: "https://test.rpc.fastnear.com",
     privateKey: secret
   });
   for (const override of [

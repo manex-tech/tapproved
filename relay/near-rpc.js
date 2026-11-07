@@ -1,4 +1,4 @@
-const DEFAULT_RPC_URL = "https://rpc.testnet.near.org";
+const DEFAULT_RPC_URL = "https://test.rpc.fastnear.com";
 const DEFAULT_CONTRACT_ID = "manextech.testnet";
 const DEFAULT_NETWORK_ID = "testnet";
 const DEFAULT_SIGNER_ACCOUNT_ID = "manex-agent.testnet";
@@ -6,23 +6,37 @@ const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvw
 const TRANSACTION_WAIT_UNTIL = new Set(["NONE", "INCLUDED", "EXECUTED_OPTIMISTIC", "INCLUDED_FINAL", "EXECUTED", "FINAL"]);
 const TAPPROVED_METHODS = new Set(["request_spend", "execute_approved_spend", "approve_spend", "expire_payment"]);
 
+const FALLBACK_RPC_URL = "https://rpc.testnet.near.org";
+
 async function fetchReadOnlyRpc(fetchImpl, rpcUrl, payload, requestId) {
   let response;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  try {
     response = await fetchImpl(rpcUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: requestId, ...payload }),
       signal: AbortSignal.timeout(10000)
     });
-    if (response.status !== 429 || attempt === 3) return response;
-
-    const retryAfter = Number(response.headers?.get?.("retry-after"));
-    const delayMs = Number.isFinite(retryAfter) && retryAfter >= 0
-      ? Math.min(retryAfter * 1000, 15000)
-      : Math.min(1000 * (2 ** attempt), 8000);
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (response && response.status !== 429 && response.status < 500) {
+      return response;
+    }
+  } catch (err) {
+    // network failure on primary
   }
+
+  // Automatic fallback if primary RPC (e.g. FastNEAR) is rate-limited (429) or unavailable
+  if (rpcUrl !== FALLBACK_RPC_URL) {
+    try {
+      const fallbackResponse = await fetchImpl(FALLBACK_RPC_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: requestId, ...payload }),
+        signal: AbortSignal.timeout(10000)
+      });
+      if (fallbackResponse && fallbackResponse.ok) return fallbackResponse;
+    } catch {}
+  }
+
   return response;
 }
 

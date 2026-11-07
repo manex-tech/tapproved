@@ -142,7 +142,7 @@ test("defaults to the deployed Tapproved contract on NEAR testnet", async () => 
     fetchImpl: mockFetch(policy, capture)
   });
   assert.deepEqual(result, policy);
-  assert.equal(capture.url, "https://rpc.testnet.near.org");
+  assert.equal(capture.url, "https://test.rpc.fastnear.com");
   assert.equal(capture.request.method, "query");
   assert.equal(capture.request.params.request_type, "call_function");
   assert.equal(capture.request.params.finality, "final");
@@ -260,7 +260,7 @@ test("reads the finalized NEAR block timestamp as a decimal nanosecond string", 
     }
   });
   assert.equal(result, timestamp);
-  assert.equal(capture.url, "https://rpc.testnet.near.org");
+  assert.equal(capture.url, "https://test.rpc.fastnear.com");
   assert.equal(capture.request.method, "block");
   assert.deepEqual(capture.request.params, { finality: "final" });
 });

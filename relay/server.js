@@ -241,7 +241,7 @@ export function createRelayServer(options = {}) {
     response.once("finish", () => {
       const rawPath = (request.url ?? "/").split("?")[0];
       const staticRoutes = new Set([
-        "/", "/dashboard", "/dashboard/styles.css", "/dashboard/app.js", "/dashboard/dashboard-service.js",
+        "/", "/dashboard", "/dashboard/styles.css", "/dashboard/app.js", "/dashboard/dashboard-service.js", "/dashboard/media-studio", "/dashboard/media-studio.html",
         "/health", "/v1/hardware-status", "/v1/dashboard-summary", "/v1/playground/hardware-trigger", "/v1/playground/routine-trigger", "/v1/payment-requests", "/v1/pending-approvals",
         "/v1/approvals/process", "/v1/recovery/reconcile", "/policy", "/active-payment"
       ]);
@@ -311,6 +311,10 @@ export function createRelayServer(options = {}) {
       }
       if (pathname === "/dashboard/dashboard-service.js" || pathname === "/dashboard-service.js") {
         await serveDashboardFile(response, "dashboard-service.js", "application/javascript; charset=utf-8");
+        return;
+      }
+      if (pathname === "/dashboard/media-studio" || pathname === "/dashboard/media-studio.html") {
+        await serveDashboardFile(response, "media-studio.html", "text/html; charset=utf-8");
         return;
       }
     }
@@ -438,6 +442,7 @@ export function createRelayServer(options = {}) {
       try {
         bridge = createSerialBridge({ path: configuredPort, baudRate, timeoutMs: 35000 });
         await bridge.connect();
+        await new Promise((r) => setTimeout(r, 800));
         const testPayment = {
           id: String(Date.now()).slice(-6),
           status: "pending",

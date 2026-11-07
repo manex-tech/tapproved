@@ -36,7 +36,7 @@ test("queries canonical agent transaction status and receipt outcomes", async ()
     }
   });
   assert.deepEqual(actual, result);
-  assert.equal(capture.url, "https://rpc.testnet.near.org");
+  assert.equal(capture.url, "https://test.rpc.fastnear.com");
   assert.equal(capture.request.method, "tx");
   assert.deepEqual(capture.request.params, {
     tx_hash: hash,

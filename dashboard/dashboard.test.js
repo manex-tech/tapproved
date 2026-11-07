@@ -81,7 +81,7 @@ test("queryContractView parses valid JSON-RPC responses", async () => {
     }), { status: 200, headers: { "content-type": "application/json" } });
   };
 
-  const policy = await queryContractView("https://rpc.testnet.near.org", "manextech.testnet", "get_policy", {}, mockFetch);
+  const policy = await queryContractView("https://test.rpc.fastnear.com", "manextech.testnet", "get_policy", {}, mockFetch);
   assert.equal(policy.owner_id, "manextech.testnet");
   assert.equal(policy.agent_id, "manex-agent.testnet");
 });

@@ -77,6 +77,16 @@
 
 ---
 
+## Media Studio & Motion Graphics Kit
+
+To record high-production-value visuals directly from your browser without complex video editing software:
+1. **Launch the Tapproved Media Studio**: Start the relay (`npm start`) and open **`http://localhost:3000/dashboard/media-studio`** (or open `dashboard/media-studio.html` directly in Chrome).
+2. **Motion Graphics Sequences**: Fullscreen broadcast animations for Scene 1 (AI Agent Hot Wallet dilemma), Scene 2 (Dual-tier architecture), Scene 3 (GPIO25 hardware pulse), and Scene 4 (Testnet verification). Use screen recording (OBS or QuickTime) while stepping through the scenes.
+3. **1080p Thumbnail Generator**: Built-in 1920x1080 Canvas exporter with live customizable copy, brutalist typography, and 1-click PNG download. Pre-rendered high-res asset available at `docs/assets/tapproved-hackathon-thumbnail.jpg`.
+4. **Broadcast Lower Thirds**: Transparent overlay cards with green-screen chroma-key toggle for introducing topics during screen recordings.
+
+---
+
 ## Pro-Tips for Recording
 
 1. **Energy is everything**: Speak with authority and enthusiasm. Smile when introducing the solution.

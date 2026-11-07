@@ -460,7 +460,7 @@ if (el.btnTestElevated) {
       const data = await res.json();
       state.awaitingHardware = false;
 
-      if (res.ok && data.status === "signed") {
+      if (res.ok && (data.status === "signed" || data.status === "paid")) {
         logToTerminal("PHYSICAL_BUTTON_PRESS_DETECTED // GPIO25 CONFIRMED", "success");
         logToTerminal(`ED25519_SIGNATURE_VERIFIED // ${(data.signature_hex || "").slice(0, 16)}...`, "success");
         logToTerminal("ON-CHAIN_SETTLEMENT_FINALIZED // 0.05 NEAR PAID", "success");

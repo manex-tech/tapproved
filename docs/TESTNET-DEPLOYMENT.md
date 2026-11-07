@@ -7,7 +7,7 @@
 | Network | `testnet` |
 | Contract and treasury | `manextech.testnet` |
 | Registered agent | `manex-agent.testnet` |
-| Default RPC | `https://rpc.testnet.near.org` |
+| Default RPC | `https://test.rpc.fastnear.com` |
 
 The project owner confirmed that the replacement Tapproved contract was deployed to `manextech.testnet` and tested using NEAR CLI. This is the canonical deployment used by the current firmware and relay configuration.
 

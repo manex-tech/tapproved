@@ -23,7 +23,7 @@ export function readSignerConfiguration(env = process.env) {
   const networkId = env.NEAR_NETWORK || CANONICAL_NETWORK;
   const contractId = env.NEAR_CONTRACT_ID || CANONICAL_CONTRACT_ID;
   const agentId = env.NEAR_SIGNER_ACCOUNT_ID || CANONICAL_AGENT_ID;
-  const rpcUrl = env.NEAR_RPC_URL || "https://rpc.testnet.near.org";
+  const rpcUrl = env.NEAR_RPC_URL || "https://test.rpc.fastnear.com";
   const privateKey = env.NEAR_SIGNER_PRIVATE_KEY;
 
   if (networkId !== CANONICAL_NETWORK) {
