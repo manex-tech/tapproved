@@ -390,8 +390,8 @@ test("submits only a locally verified registered-device signature to approve_spe
       JsonRpcProvider: MockProvider,
       KeyPair: { fromString: () => ({ getPublicKey: () => ({ toString: () => publicKey }) }) },
       teraToGas: (value) => {
-        assert.equal(value, "30");
-        return 30_000_000_000_000n;
+        assert.equal(value, "50");
+        return 50_000_000_000_000n;
       }
     },
     getPolicy: async () => ({

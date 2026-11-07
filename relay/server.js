@@ -152,7 +152,7 @@ let localActivePayment = null;
 
 async function fetchDashboardSummary() {
   const now = Date.now();
-  if (cachedDashboardSummary && now - lastSummaryTimestamp < 1500) {
+  if (cachedDashboardSummary && now - lastSummaryTimestamp < 5000) {
     return cachedDashboardSummary;
   }
 
@@ -176,13 +176,19 @@ async function fetchDashboardSummary() {
     callViewMethod("get_daily_usage", { day: currentDay }).catch(() => null)
   ]);
 
-  let payments = cachedDashboardSummary?.payments || [];
+  let payments = [];
+  const knownPayments = new Map((cachedDashboardSummary?.payments || []).map((p) => [String(p.id), p]));
   if (policy?.next_payment_id) {
     const nextId = Number(policy.next_payment_id);
     const startId = Math.max(1, nextId - 15);
     const paymentPromises = [];
     for (let id = startId; id < nextId; id++) {
-      paymentPromises.push(getPayment(String(id)).catch(() => null));
+      const existing = knownPayments.get(String(id));
+      if (existing && ["paid", "failed", "expired", "cancelled"].includes(existing.status)) {
+        paymentPromises.push(Promise.resolve(existing));
+      } else {
+        paymentPromises.push(getPayment(String(id)).catch(() => existing || null));
+      }
     }
     const results = await Promise.all(paymentPromises);
     payments = results.filter(Boolean).reverse();
@@ -206,8 +212,6 @@ async function fetchDashboardSummary() {
     active_payment: localActivePayment || activePayment,
     daily_usage: dailyUsage,
     payments: finalPayments,
-    daily_usage: dailyUsage,
-    payments,
     hardware_status: {
       configured_port: configuredPort,
       connected: isConnected,
@@ -346,6 +350,12 @@ export function createRelayServer(options = {}) {
       }
 
       try {
+        if (cachedDashboardSummary?.policy?.allowed_recipients &&
+            Array.isArray(cachedDashboardSummary.policy.allowed_recipients) &&
+            !cachedDashboardSummary.policy.allowed_recipients.includes(payment.recipient_id)) {
+          send(response, 400, { error: "recipient_not_allowlisted" });
+          return;
+        }
         const result = await submitIdempotentPaymentRequest({
           store: idempotencyStore,
           agentId,
@@ -614,12 +624,27 @@ export function createRelayServer(options = {}) {
         return;
       }
       if (pathname === "/policy") {
-        const policy = await getPolicy();
+        let policy = cachedDashboardSummary?.policy;
+        if (!policy) {
+          try {
+            policy = await getPolicy();
+          } catch {
+            policy = cachedDashboardSummary?.policy || null;
+          }
+        }
+        if (!policy) {
+          policy = await getPolicy();
+        }
         send(response, 200, { network: "testnet", policy });
         return;
       }
       if (pathname === "/active-payment") {
-        const payment = await getActivePayment();
+        let payment;
+        try {
+          payment = await getActivePayment();
+        } catch {
+          payment = cachedDashboardSummary?.active_payment ?? null;
+        }
         send(response, 200, { network: "testnet", payment });
         return;
       }

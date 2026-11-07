@@ -36,11 +36,15 @@ export class AutonomousAgent {
    */
   async runLifecycleDemo({ routineRecipient, highValueRecipient, restrictedRecipient } = {}) {
     this.#logger.log("[Agent] Connecting to Tapproved relay and fetching policy...");
-    const policy = await this.#client.getPolicy();
-    this.#logger.log(`[Agent] Policy loaded: Soft Limit = ${policy.soft_limit_yocto} yoctoNEAR, Hard Limit = ${policy.hard_limit_yocto} yoctoNEAR`);
-    this.#logger.log(`[Agent] Allowlisted recipients: ${JSON.stringify(policy.allowed_recipients)}`);
+    const rawPolicy = await this.#client.getPolicy();
+    const policy = rawPolicy?.policy ?? rawPolicy;
+    this.#logger.log(`[Agent] Policy loaded: Soft Limit = ${policy?.soft_limit_yocto} yoctoNEAR, Hard Limit = ${policy?.hard_limit_yocto} yoctoNEAR`);
+    this.#logger.log(`[Agent] Allowlisted recipients: ${JSON.stringify(policy?.allowed_recipients)}`);
 
-    const defaultRecipient = policy.allowed_recipients[0] || "manex-agent.testnet";
+    const allowedRecipients = Array.isArray(policy?.allowed_recipients) && policy.allowed_recipients.length > 0
+      ? policy.allowed_recipients
+      : ["manex-agent.testnet"];
+    const defaultRecipient = allowedRecipients[0] || "manex-agent.testnet";
     const routineTarget = routineRecipient || defaultRecipient;
     const highValueTarget = highValueRecipient || defaultRecipient;
     const invalidTarget = restrictedRecipient || "unauthorized-merchant.testnet";
@@ -61,7 +65,7 @@ export class AutonomousAgent {
       idempotencyKey: generateIdempotencyKey("routine")
     });
 
-    this.#logger.log(`[Agent] Request status: ${routineReq.payment?.status} (replayed=${routineReq.replayed})`);
+    this.#logger.log(`[Agent] Request status: ${routineReq.payment?.status ?? routineReq.state} (replayed=${routineReq.replayed})`);
     results.routine = routineReq;
 
     // Scenario 2: High-Value Payment (exceeds soft limit, within hard limit)
@@ -74,8 +78,8 @@ export class AutonomousAgent {
       idempotencyKey: generateIdempotencyKey("highval")
     });
 
-    if (elevatedReq.payment?.status === "pending") {
-      this.#logger.log(`[Agent] Payment ${elevatedReq.payment.id} is PENDING! Physical button confirmation required on ESP32.`);
+    if (elevatedReq.payment?.status === "pending" || elevatedReq.state === "processing") {
+      this.#logger.log(`[Agent] Payment ${elevatedReq.payment?.id ?? "request"} is PENDING! Physical button confirmation required on ESP32.`);
     }
     results.highValue = elevatedReq;
 
@@ -83,6 +87,9 @@ export class AutonomousAgent {
     this.#logger.log("\n--- Scenario 3: Restricted Spending Rejection ---");
     this.#logger.log(`[Agent] Attempting spend to unauthorized recipient: ${invalidTarget}`);
     try {
+      if (Array.isArray(policy?.allowed_recipients) && !policy.allowed_recipients.includes(invalidTarget)) {
+        throw new PolicyViolationError(`recipient ${invalidTarget} is not allowlisted`, "recipient_not_allowlisted");
+      }
       await this.#client.requestPayment({
         recipientId: invalidTarget,
         amountYocto: routineAmount.toString(),

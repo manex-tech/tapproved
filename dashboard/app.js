@@ -354,7 +354,7 @@ function startAutoRefresh() {
   if (state.refreshTimer) clearInterval(state.refreshTimer);
   state.refreshTimer = setInterval(() => {
     if (state.autoRefresh && !state.awaitingHardware) loadContractData();
-  }, 1500);
+  }, 5000);
 }
 
 // Simulate Physical Button Press Handler
@@ -381,9 +381,10 @@ if (el.btnSimulateApproval) {
       status: "paid",
       hardware_approved: true
     });
-    logToTerminal("SIGNATURE_VERIFIED // ON-CHAIN SETTLEMENT EXECUTED", "success");
+    logToTerminal("SIMULATION_COMPLETE: LOCAL HARDWARE INTERLOCK VERIFIED", "success");
+    logToTerminal("NOTE: Live on-chain cryptographic settlement requires physical GPIO25 button actuation on ESP32 (COM11)", "info");
     if (el.playgroundOutputBlock) {
-      el.playgroundOutputBlock.textContent = `=================================================================\n🎉 HARDWARE AUTHORIZATION VERIFIED & SETTLED!\n=================================================================\n{\n  "payment_id": "${pid}",\n  "status": "paid",\n  "amount_yocto": "${amount}",\n  "recipient_id": "${recipient}",\n  "hardware_approved": true,\n  "authorization_method": "ESP32_ED25519_GPIO25",\n  "settlement": "CONFIRMED_ON_CHAIN"\n}`;
+      el.playgroundOutputBlock.textContent = `=================================================================\n⚡ HARDWARE APPROVAL FLOW SIMULATED (DEMO MODE)\n=================================================================\n{\n  "payment_id": "${pid}",\n  "status": "paid",\n  "amount_yocto": "${amount}",\n  "recipient_id": "${recipient}",\n  "hardware_approved": true,\n  "authorization_method": "LOCAL_SIMULATION",\n  "note": "Hardware private key is isolated on physical ESP32 device on COM11. Live on-chain execution requires physical button press."\n}`;
     }
     renderUI();
     el.btnSimulateApproval.disabled = false;
@@ -418,10 +419,17 @@ if (el.btnTestRoutine) {
         }
         logToTerminal("AUTONOMOUS_APPROVAL: 0.001 NEAR SETTLED (NO HARDWARE GATING NEEDED)", "success");
       } else {
+        const txHash = data.execution_transaction_hash || data.transaction_hash;
+        const explorerLink = txHash ? `https://explorer.testnet.near.org/transactions/${txHash}` : null;
         if (el.playgroundOutputBlock) {
-          el.playgroundOutputBlock.textContent = `${outputHeader}\nSTATUS: ${res.status}\nRECEIPT: ${JSON.stringify(data, null, 2)}`;
+          el.playgroundOutputBlock.textContent = `${outputHeader}\n[✅ ON-CHAIN SETTLEMENT CONFIRMED ON NEAR TESTNET]\nTransaction Hash: ${txHash || 'N/A'}\nExplorer Link: ${explorerLink || 'N/A'}\n\nRECEIPT:\n${JSON.stringify(data, null, 2)}`;
         }
-        logToTerminal(`AGENT_SUBMISSION_STATUS: ${res.status} // ${data.payment?.status || 'OK'}`, "success");
+        if (explorerLink) {
+          logToTerminal(`ON_CHAIN_TX_CONFIRMED: ${txHash}`, "success");
+          logToTerminal(`EXPLORER: ${explorerLink}`, "info");
+        } else {
+          logToTerminal(`AGENT_SUBMISSION_STATUS: ${res.status} // ${data.payment?.status || 'OK'}`, "success");
+        }
       }
       loadContractData();
     } catch (err) {

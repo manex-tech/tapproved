@@ -616,7 +616,7 @@ test("HTTP responses expose a correlation ID and emit structured request logs", 
     warn: (event, fields) => records.push({ level: "warn", event, fields }),
     error: (event, fields) => records.push({ level: "error", event, fields })
   };
-  await withServer({ ...authOptions(), logger }, async (base) => {
+  await withServer({ ...authOptions(), logger, getPayment: async () => null }, async (base) => {
     const response = await fetch(`${base}/health`);
     const requestId = response.headers.get("x-request-id");
     assert.match(requestId, /^[0-9a-f-]{36}$/i);
@@ -638,7 +638,7 @@ test("request logging never includes authorization credentials or query strings"
     warn: (event, fields) => records.push({ event, fields }),
     error: (event, fields) => records.push({ event, fields })
   };
-  await withServer({ ...authOptions(), logger }, async (base) => {
+  await withServer({ ...authOptions(), logger, getPayment: async () => null }, async (base) => {
     const response = await fetch(`${base}/v1/payments/123?token=do-not-log-this`, { headers: { authorization: `Bearer ${token}` } });
     assert.equal(response.status, 404);
     await new Promise((resolve) => setImmediate(resolve));

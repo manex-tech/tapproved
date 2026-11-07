@@ -96,6 +96,29 @@ export function validateAgentFunctionCallKey(
   };
 }
 
+export function createResilientProvider(sdk, url) {
+  const provider = new sdk.JsonRpcProvider({ url });
+  if (typeof provider?.sendJsonRpc === "function") {
+    const originalSend = provider.sendJsonRpc.bind(provider);
+    provider.sendJsonRpc = async (method, params) => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          return await originalSend(method, params);
+        } catch (err) {
+          const isRateLimit = err?.cause === 429 ||
+            (typeof err?.message === "string" && (err.message.includes("429") || err.message.includes("Rate limits exceeded")));
+          if (isRateLimit && attempt < 4) {
+            await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+            continue;
+          }
+          throw err;
+        }
+      }
+    };
+  }
+  return provider;
+}
+
 function decodePaymentView(rawOutcome, expected) {
   const successValue = rawOutcome?.status?.SuccessValue;
   if (typeof successValue !== "string") {
@@ -141,7 +164,7 @@ export async function createNearAgentSigner(options = {}) {
     throw new SignerConfigurationError("NEAR_SIGNER_PRIVATE_KEY could not be parsed");
   }
 
-  const provider = new sdk.JsonRpcProvider({ url: config.rpcUrl });
+  const provider = createResilientProvider(sdk, config.rpcUrl);
   const account = new sdk.Account(config.agentId, provider, config.privateKey);
 
   let accessKeyList;
@@ -179,7 +202,7 @@ export async function createNearAgentSigner(options = {}) {
       contractId: config.contractId,
       methodName: "execute_approved_spend",
       args: { payment_id: Number(paymentId) },
-      gas: sdk.teraToGas("30"),
+      gas: sdk.teraToGas("50"),
       deposit: 0n,
       waitUntil: "FINAL"
     });
@@ -245,7 +268,7 @@ export async function createNearApprovalSigner(options = {}) {
     throw new SignerConfigurationError("NEAR_APPROVAL_SIGNER_PRIVATE_KEY could not be parsed");
   }
 
-  const provider = new sdk.JsonRpcProvider({ url: config.rpcUrl });
+  const provider = createResilientProvider(sdk, config.rpcUrl);
   const account = new sdk.Account(config.agentId, provider, config.privateKey);
 
   let accessKeyList;
@@ -350,7 +373,7 @@ export async function createNearApprovalSigner(options = {}) {
         payment_id: Number(BigInt(payment.id)),
         signature: signatureBytes
       },
-      gas: sdk.teraToGas("30"),
+      gas: sdk.teraToGas("50"),
       deposit: 0n,
       waitUntil: "FINAL"
     });
@@ -415,7 +438,7 @@ export async function createNearExpirySigner(options = {}) {
     throw new SignerConfigurationError("NEAR_EXPIRY_SIGNER_PRIVATE_KEY could not be parsed");
   }
 
-  const provider = new sdk.JsonRpcProvider({ url: config.rpcUrl });
+  const provider = createResilientProvider(sdk, config.rpcUrl);
   const account = new sdk.Account(config.agentId, provider, config.privateKey);
   let accessKeyList;
   try {

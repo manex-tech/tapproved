@@ -183,7 +183,8 @@ export class TapprovedClient {
    * Retrieve current on-chain spending policy and limits.
    */
   async getPolicy({ signal } = {}) {
-    return await this.#request("/policy", { signal });
+    const data = await this.#request("/policy", { signal });
+    return data?.policy ?? data;
   }
 
   /**

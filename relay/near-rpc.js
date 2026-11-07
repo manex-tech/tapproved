@@ -6,37 +6,53 @@ const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvw
 const TRANSACTION_WAIT_UNTIL = new Set(["NONE", "INCLUDED", "EXECUTED_OPTIMISTIC", "INCLUDED_FINAL", "EXECUTED", "FINAL"]);
 const TAPPROVED_METHODS = new Set(["request_spend", "execute_approved_spend", "approve_spend", "expire_payment"]);
 
-const FALLBACK_RPC_URL = "https://rpc.testnet.near.org";
+
+const FALLBACK_RPC_URLS = [
+  "https://archival-rpc.testnet.fastnear.com",
+  "https://rpc.testnet.near.org"
+];
 
 async function fetchReadOnlyRpc(fetchImpl, rpcUrl, payload, requestId) {
   let response;
-  try {
-    response = await fetchImpl(rpcUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: requestId, ...payload }),
-      signal: AbortSignal.timeout(10000)
-    });
-    if (response && response.status !== 429 && response.status < 500) {
-      return response;
-    }
-  } catch (err) {
-    // network failure on primary
-  }
-
-  // Automatic fallback if primary RPC (e.g. FastNEAR) is rate-limited (429) or unavailable
-  if (rpcUrl !== FALLBACK_RPC_URL) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
-      const fallbackResponse = await fetchImpl(FALLBACK_RPC_URL, {
+      response = await fetchImpl(rpcUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: requestId, ...payload }),
         signal: AbortSignal.timeout(10000)
       });
-      if (fallbackResponse && fallbackResponse.ok) return fallbackResponse;
+      if (response && response.status !== 429 && response.status < 500) {
+        return response;
+      }
     } catch {}
-  }
 
+    if (attempt > 0) {
+      for (const fbUrl of FALLBACK_RPC_URLS) {
+        if (fbUrl === rpcUrl) continue;
+        try {
+          const fbRes = await fetchImpl(fbUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: requestId, ...payload }),
+            signal: AbortSignal.timeout(10000)
+          });
+          if (fbRes && fbRes.status === 200) return fbRes;
+        } catch {}
+      }
+    }
+
+    const retryAfterHeader = response?.headers?.get?.("retry-after");
+    const retryAfter = retryAfterHeader !== null && retryAfterHeader !== undefined ? Number(retryAfterHeader) : NaN;
+
+    if (Number.isFinite(retryAfter) && retryAfter > 0) {
+      const delayMs = Math.min(retryAfter * 1000, 15000);
+      await new Promise((r) => setTimeout(r, delayMs));
+    } else {
+      const delayMs = Math.min(100 * (2 ** attempt), 2000);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
   return response;
 }
 
