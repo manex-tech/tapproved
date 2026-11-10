@@ -106,13 +106,16 @@ The system comprises five distinct architectural trust domains:
 
 - **Threat Scenario**: The intermediary Node.js relay server is breached.
 - **Attacker Capabilities**:
-  - Can delay, drop, or refuse to forward requests (Denial of Service).
-  - Can view transaction metadata and requests.
-- **Contract Guardrails**:
-  - The relay possesses **NO authority** over treasury funds.
-  - The relay cannot sign transactions on behalf of the owner or device.
-  - If the relay tampers with payment amounts or recipients in the serial payload to the ESP32, the resulting signature will not match the contract's stored payment parameters and `approve_spend` will fail with `"invalid hardware approval signature"`.
-  - Stalled payments expire automatically via `expires_at_ns` and reservations are released back to the daily spending limit.
+  - Can delay, drop, or refuse to forward requests (Denial of Service), and can view transaction metadata and requests.
+  - Holds the agent's restricted NEAR FunctionCall key. A compromised relay can invoke `request_spend` and `execute_approved_spend` for allowlisted recipients at or below `soft_limit_yocto`, autonomously spending up to the remaining UTC daily cap.
+  - Can submit an elevated request, but it remains pending and cannot be settled without a valid ESP32 Ed25519 signature.
+- **Three-key split and contract guardrails**:
+  - **Agent request/execute key:** restricted to `request_spend` and `execute_approved_spend` on `manextech.testnet`. It cannot call owner governance methods or approve elevated payments.
+  - **Approval broadcaster key:** restricted to `approve_spend`. The relay validates the registered device public key and Ed25519 signature before broadcasting; the contract independently verifies that signature against the pending payment. Possession of this NEAR key alone cannot forge device approval.
+  - **Expiry keeper key:** restricted to `expire_payment`; it cannot request, execute, or approve payments.
+  - The **owner governance key** is separate and is not held by the relay. The ESP32 Ed25519 device key is also separate from all three relay NEAR keys.
+  - If the relay tampers with amounts or recipients in the serial payload, the device signature will not match the contract's stored payment parameters and `approve_spend` fails.
+  - Stalled payments expire via `expires_at_ns` and reservations are released back to the daily spending limit.
 
 ---
 
@@ -166,5 +169,5 @@ near contract call-function as-transaction manextech.testnet expire_payment json
 ## 5. Residual Risks & Future Work (H10)
 
 1. **Hardware Prototype Notice**: The current ESP32-WROOM-32 implementation serves as a functional demonstration prototype. Production deployments should incorporate a Common Criteria EAL6+ secure element (e.g. ATECC608A / SE050) with hardware-enforced private key non-exportability.
-2. **Display Trust**: The serial output to a development machine is informative. A tamper-proof physical OLED/e-Paper display directly driven by the microcontroller ensures What-You-See-Is-What-You-Sign (WYSIWYS).
+2. **Blind signing / display trust**: The current ESP32 has no trusted display. Payment details are printed over USB serial to a host-controlled machine; a compromised host can misrepresent recipient or amount while the operator presses GPIO25. A tamper-resistant OLED/e-Paper display directly driven by the microcontroller, with a trusted rendering path, is required for What-You-See-Is-What-You-Sign (WYSIWYS).
 3. **Formal Verification**: While unit tests cover 100% of state transitions and edge cases, mathematical formal verification (e.g. via Certora or K-Framework) is recommended prior to mainnet treasury management.

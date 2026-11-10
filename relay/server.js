@@ -5,7 +5,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 import { DEFAULT_CONTRACT_ID, getActivePayment, getPayment, getPolicy, getTransactionStatus, isValidTransactionHash, TransactionNotFoundError, TransactionQueryValidationError, TransactionWaitTimeoutError, callViewMethod } from "./near-rpc.js";
-import { createAgentAuthenticator } from "./auth.js";
+import { createAgentAuthenticator, resolveAgentApiToken } from "./auth.js";
 import { createNearAgentSigner, createNearApprovalSigner, createNearExpirySigner } from "./near-signer.js";
 import { createPaymentExpiryMonitor, readExpiryMonitorInterval } from "./expiry-service.js";
 import { createRecoveryService, readRecoveryInterval } from "./recovery-service.js";
@@ -173,7 +173,7 @@ async function fetchDashboardSummary() {
     getPolicy().catch(() => cachedDashboardSummary?.policy || null),
     callViewMethod("get_storage_metrics").catch(() => cachedDashboardSummary?.storage_metrics || null),
     getActivePayment().catch(() => null),
-    callViewMethod("get_daily_usage", { day: currentDay }).catch(() => null)
+    callViewMethod("get_daily_usage", { utc_day: currentDay }).catch(() => null)
   ]);
 
   let payments = [];
@@ -237,6 +237,7 @@ export function createRelayServer(options = {}) {
   const readPayment = options.getPayment ?? getPayment;
   const readTransactionStatus = options.getTransactionStatus ?? getTransactionStatus;
   const logger = options.logger ?? createStructuredLogger();
+  const readPolicy = options.getPolicy ?? getPolicy;
 
   return createServer(async (request, response) => {
     const requestId = randomUUID();
@@ -627,13 +628,13 @@ export function createRelayServer(options = {}) {
         let policy = cachedDashboardSummary?.policy;
         if (!policy) {
           try {
-            policy = await getPolicy();
+            policy = await readPolicy();
           } catch {
             policy = cachedDashboardSummary?.policy || null;
           }
         }
         if (!policy) {
-          policy = await getPolicy();
+          policy = await readPolicy();
         }
         send(response, 200, { network: "testnet", policy });
         return;
@@ -708,7 +709,22 @@ async function startRelay() {
   }
 
   try {
-    recoveryService = createRecoveryService({
+    const [unresolvedRequests, unresolvedOperations] = await Promise.all([
+      idempotencyStore.listUnresolvedPaymentRequests(DEFAULT_AGENT_ID),
+      idempotencyStore.listUnresolvedOperations(DEFAULT_AGENT_ID)
+    ]);
+    const signerConfigured = [
+      process.env.NEAR_SIGNER_PRIVATE_KEY,
+      process.env.NEAR_APPROVAL_SIGNER_PRIVATE_KEY,
+      process.env.NEAR_EXPIRY_SIGNER_PRIVATE_KEY
+    ].some((value) => typeof value === "string" && value.length > 0);
+    if (!signerConfigured && unresolvedRequests.length === 0 && unresolvedOperations.length === 0) {
+      logger.info("recovery.monitor.skipped", {
+        component: "recovery-monitor",
+        reason: "read_only_mode_no_recovery_work"
+      });
+    } else {
+      recoveryService = createRecoveryService({
       store: idempotencyStore,
       intervalMs: readRecoveryInterval(),
       onResult: (result) => {
@@ -720,14 +736,15 @@ async function startRelay() {
         logger.error("recovery.monitor.failed", { component: "recovery-monitor", ...sanitizeError(error, "recovery_monitor_failed") });
       }
     });
-    recoveryService.start();
-    logger.info("recovery.monitor.enabled", { component: "recovery-monitor" });
+      recoveryService.start();
+      logger.info("recovery.monitor.enabled", { component: "recovery-monitor" });
+    }
   } catch (error) {
     logger.error("recovery.monitor.unavailable", { component: "recovery-monitor", ...sanitizeError(error, "recovery_monitor_unavailable") });
   }
 
-  const agentApiToken = process.env.AGENT_API_TOKEN || "tapproved-dev-session-token-0123456789abcdef";
-  if (!process.env.AGENT_API_TOKEN) {
+  const { token: agentApiToken, development: devTokenActive } = resolveAgentApiToken();
+  if (devTokenActive) {
     logger.info("auth.dev_token_active", {
       component: "auth",
       note: "AGENT_API_TOKEN not set in environment; using local development token for dashboard and testing"

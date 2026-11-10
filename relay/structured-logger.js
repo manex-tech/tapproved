@@ -1,7 +1,7 @@
 // Explicit allowlist: untrusted request and provider data is never serialized by default.
 const SAFE_FIELDS = new Set([
   "request_id", "method", "route", "status", "duration_ms",
-  "error_code", "error_name", "operation", "payment_id", "transaction_hash",
+  "error_code", "error_name", "operation", "payment_id", "transaction_hash", "reason",
   "state", "component"
 ]);
 
