@@ -40,12 +40,21 @@ function authOptions() {
 }
 
 test("health endpoint remains public and returns process health", async () => {
-  await withServer(authOptions(), async (base) => {
+  const policy = {
+    soft_limit_yocto: "10000000000000000000000",
+    hard_limit_yocto: "100000000000000000000000",
+    daily_limit_yocto: "500000000000000000000000",
+    allowed_recipients: ["manex-agent.testnet"]
+  };
+  await withServer({ ...authOptions(), getPolicy: async () => policy }, async (base) => {
     const response = await fetch(`${base}/health`);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
       name: "tapproved", status: "ok", network: "testnet"
     });
+    const policyResponse = await fetch(`${base}/policy`);
+    assert.equal(policyResponse.status, 200);
+    assert.deepEqual((await policyResponse.json()).policy, policy);
   });
 });
 

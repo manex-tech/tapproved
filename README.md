@@ -3,11 +3,38 @@
 [![NEAR Testnet](https://img.shields.io/badge/NEAR-Testnet-00EC97?logo=near&logoColor=black)](https://explorer.testnet.near.org/accounts/manextech.testnet)
 [![Contract](https://img.shields.io/badge/Contract-manextech.testnet-blue)](https://explorer.testnet.near.org/accounts/manextech.testnet)
 [![Agent](https://img.shields.io/badge/Agent-manex--agent.testnet-purple)](https://explorer.testnet.near.org/accounts/manex-agent.testnet)
-[![CI Matrix](https://img.shields.io/badge/CI-Passing-success)](https://github.com/manex-tech/tapproved/actions)
+[![CI](https://github.com/manex-tech/tapproved/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/manex-tech/tapproved/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> **Hardware-backed spending authorization for autonomous AI agents on NEAR.**  
-> Routine payments execute automatically within strict policy limits; elevated payments require a physical button press on an ESP32 hardware device generating an Ed25519 signature.
+> **Built for NEAR HACKATHON**  
+> Tracks: **AI Security and Defense** and **Agent Economy**.  
+> **Testnet only. Unaudited.** Do not use real funds.  
+>
+> **Hardware-backed spending authorization for autonomous AI agents on NEAR.** Routine payments execute automatically within strict policy limits; elevated payments require a physical button press on an ESP32 hardware device generating an Ed25519 signature.
+
+---
+
+## Project Context & Disclosures
+
+### Origin
+
+Tapproved grew out of earlier experimentation in [near-tap](https://github.com/manex-tech/near-tap), but **no source code, contract modules, firmware, tests, or other implementation files were carried over**; Tapproved is a separate implementation. The NEAR Testnet account `manextech.testnet` previously hosted an attendance prototype, and its legacy records remain in account storage. The contract's `migrate()` method was a one-time, guarded migration of that existing state to the Tapproved schema; it was not a migration of near-tap source code.
+
+### AI-assisted development disclosure
+
+AI tools assisted with implementation, debugging, test development, and documentation. The project maintainer remains responsible for the code, design decisions, test evidence, and submission. AI assistance is not an independent security review or audit.
+
+### Third-party libraries
+
+Direct dependencies include `near-api-js 7.3.1` and `serialport 12.0.0` (Node.js); `near-sdk 5.17.2` and `borsh 1.5.7` (Rust contract); and `Crypto 0.4.0` and `ArduinoJson 7.2.1` (ESP32 firmware). The firmware build uses PlatformIO's `espressif32 6.10.0` platform. See `package-lock.json`, `contract/Cargo.toml`, and `firmware/platformio.ini` for pinned dependency declarations and transitive dependency details.
+
+### Known limitations
+
+- **Blind signing / display trust:** the ESP32 has no trusted display. Payment details are presented through host-controlled USB serial, so a compromised host can misrepresent what the physical button press authorizes. A directly driven trusted display is not implemented; see the [Threat Model, H10](docs/SECURITY-THREAT-MODEL.md).
+- **Extractable device key:** the Ed25519 seed is stored in ordinary ESP32 NVS. Flash encryption and secure boot are not configured, so physical flash/debug access may expose the key. See the [ESP32 Security Assessment](docs/ESP32-SECURITY-ASSESSMENT.md).
+- **Testnet only:** the contract, agent, and documented flows target NEAR Testnet. No mainnet deployment is supported.
+- **Autonomous soft-limit exposure:** a compromised agent key or relay can make allowlisted soft-limit payments autonomously up to the remaining daily spending cap. Payments above the soft limit require a valid device signature.
+- **Unaudited:** no independent smart-contract, firmware, or application security audit has been completed.
 
 ---
 
@@ -84,8 +111,13 @@ git clone https://github.com/manex-tech/tapproved.git
 cd tapproved
 npm ci
 npm run check
+cargo test --manifest-path contract/Cargo.toml
+npm run agent:autonomous
 ```
-*Runs all 169 Node test assertions, syntax checks across SDK, relay, examples, and dashboard in ~2 seconds.*
+
+- `npm run check`: 169 Node.js tests plus JavaScript syntax checks.
+- `cargo test --manifest-path contract/Cargo.toml`: 83 Rust unit tests.
+- `npm run agent:autonomous`: starts an in-process local simulation by default; it does not send NEAR transactions and does not require a `.env` file.
 
 ---
 
@@ -98,20 +130,31 @@ Executes all unit tests, cryptographic vector validations, SDK methods, and inte
 ```bash
 npm run check
 ```
-- **Scope**: 169 tests across Node relay, SDK, protocol vectors, dashboard service, and autonomous agent mocks.
-- **Expected Result**: 100% pass rate in ~2 seconds with zero network calls required.
+- **Scope**: 169 Node.js tests across the relay, SDK, protocol vectors, dashboard service, and autonomous-agent mocks.
+- **Expected Result**: all 169 pass; this suite makes no live NEAR transactions.
+
+Run the Rust contract unit suite separately:
+```bash
+cargo test --manifest-path contract/Cargo.toml
+```
+It contains 83 Rust unit tests.
+
+**Evidence boundary:** live NEAR Testnet transactions listed in §3 are network evidence, not sandbox integration tests. This repository has no sandbox integration-test suite; local Node and Rust tests are unit/mock tests.
 
 ### Option 2: Autonomous AI Agent Simulation Demo
-Simulates an end-to-end autonomous agent session without needing physical hardware connected:
+Runs a deterministic local simulation without physical hardware, a `.env` file, or live NEAR transactions. The command starts an ephemeral relay in-process and uses a local policy/payment adapter:
 ```bash
 npm run agent:autonomous
 ```
-- **Lifecycle Verified**:
-  1. Agent queries live on-chain spending policy via SDK.
-  2. Agent executes routine micropayments ($\le 0.01$ NEAR) with immediate autonomous approval.
-  3. Agent requests an elevated payment ($> 0.01$ NEAR), transitioning the request to `pending` on-chain.
-  4. Demonstrates handling of simulated physical button timeouts and recovery.
-  5. Simulates an operator physical button press yielding a valid Ed25519 signature and on-chain settlement.
+
+To exercise a separately running relay instead, open **two terminals**. In terminal 1, configure the relay's required signer keys and a strong `AGENT_API_TOKEN`, then run `npm start`. In terminal 2, set `TAPPROVED_RELAY_URL=http://127.0.0.1:3000` and the same `AGENT_API_TOKEN`, then run `npm run agent:autonomous`. A real relay requires valid signer configuration; the default no-`.env` path is simulation only.
+
+- **Lifecycle Simulated**:
+  1. Agent reads the fixed local policy through the in-process relay.
+  2. A routine payment is accepted by the local simulation adapter as `approved`.
+  3. An elevated payment is returned as `pending`.
+  4. A request to a non-allowlisted recipient is rejected by the agent-side policy check.
+  5. The adapter returns synthetic transaction identifiers only; no NEAR transaction, ESP32 signature, or physical button interaction occurs.
 
 ### Option 3: Interactive Real-Time Monitoring Dashboard
 Launches the relay server and the operator web dashboard:
@@ -127,26 +170,27 @@ npm start
   - **Simulation Controls**: One-click simulated button press and agent spend requests directly from the UI.
 
 ### Option 4: Live NEAR Testnet CLI Inspection (Read-Only)
-Inspect the canonical on-chain state directly on NEAR Testnet using `near-cli` without spending gas or modifying contract state:
+Inspect the canonical on-chain state directly on NEAR Testnet using **near-cli-rs v0.7.4** without spending gas or modifying contract state. The CI workflow installs this exact CLI version and runs all four commands below against Testnet.
 
 1. **Inspect Spending Policy:**
    ```bash
-   near contract call-function as-read-only manextech.testnet get_policy json-args '{}' network-config testnet
+   near contract call-function as-read-only manextech.testnet get_policy json-args '{}' network-config testnet now
    ```
 
-2. **Inspect Current Daily Quota Usage:**
+2. **Inspect Current Daily Quota Usage (UTC day):**
    ```bash
-   near contract call-function as-read-only manextech.testnet get_daily_usage json-args '{"day": 20758}' network-config testnet
+   UTC_DAY="$(($(date -u +%s) / 86400))"
+   near contract call-function as-read-only manextech.testnet get_daily_usage json-args "{\"utc_day\": ${UTC_DAY}}" network-config testnet now
    ```
 
 3. **Inspect Latest Settled Payment (#4):**
    ```bash
-   near contract call-function as-read-only manextech.testnet get_payment json-args '{"payment_id": 4}' network-config testnet
+   near contract call-function as-read-only manextech.testnet get_payment json-args '{"payment_id": 4}' network-config testnet now
    ```
 
 4. **Inspect Treasury Storage Staking & Headroom:**
    ```bash
-   near contract call-function as-read-only manextech.testnet get_storage_metrics json-args '{}' network-config testnet
+   near contract call-function as-read-only manextech.testnet get_storage_metrics json-args '{}' network-config testnet now
    ```
 
 ### Option 5: Live Physical Hardware Testing (ESP32 via USB)
@@ -228,7 +272,8 @@ The dashboard provides operators with complete situational awareness over agent 
 | **Agent Key Theft** | Blast radius is strictly capped by per-payment soft limit and daily spending limit. Attacker can only pay pre-approved allowlist recipients. Owner can freeze treasury via `pause()` or rebind agent key via `set_agent()`. | [Threat Model §2.1](docs/SECURITY-THREAT-MODEL.md) |
 | **Hardware Key Extraction** | Signatures cannot conjure payments or bypass on-chain policy. Signatures are accepted only if a payment is already created by the agent in `pending` state and within the 5-minute expiry window. Owner can rotate device key atomically via `rotate_device_key()`. | [Threat Model §2.2](docs/SECURITY-THREAT-MODEL.md) |
 | **Signature Replay** | The canonical payload cryptographically binds `payment_id`, `recipient_id`, `amount_yocto`, `nonce`, `expires_at_ns`, `contract_id`, and `network_id`. Signatures cannot be replayed on mainnet or across payments. | [Threat Model §2.4](docs/SECURITY-THREAT-MODEL.md) |
-| **Relay Compromise** | Relay possesses zero spending authority. Tampering with serial payloads invalidates the Ed25519 signature on-chain. Stalled payments expire safely without loss of funds. | [Threat Model §2.5](docs/SECURITY-THREAT-MODEL.md) |
+| **Relay Compromise** | The relay holds the restricted agent request key and can submit and execute allowlisted payments at or below the soft limit, up to the remaining daily cap. Its separate approval key can call only `approve_spend` and cannot forge the ESP32 Ed25519 signature; the contract rejects elevated payments without a valid device signature. Its expiry key can call only `expire_payment`. The owner governance key is not held by the relay. | [Threat Model §2.5](docs/SECURITY-THREAT-MODEL.md) |
+| **Blind Signing / Display Trust** | The ESP32 has no trusted display. USB serial output is host-controlled, so the operator may not be seeing the exact payment that the button press signs. A trusted device display is a known limitation, not a current defense. | [Threat Model H10](docs/SECURITY-THREAT-MODEL.md) |
 | **Storage Exhaustion** | Storage uses $O(1)$ `LookupMap` collections; daily usage is pruned after 90 days; allowlist is capped at 100 recipients; `get_storage_metrics` monitors available headroom (~2.42 NEAR). | [Threat Model §3](docs/SECURITY-THREAT-MODEL.md) |
 
 ---

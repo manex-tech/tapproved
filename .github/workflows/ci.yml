@@ -24,6 +24,37 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Check JavaScript syntax and tests
         run: npm run check
+      - name: Verify no-env autonomous demo from a clean checkout
+        run: npm run agent:autonomous
+      - name: Verify relay starts without .env or signer credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          temp_dir="$(mktemp -d)"
+          port=43127
+          PORT="$port" TAPPROVED_IDEMPOTENCY_PATH="$temp_dir/idempotency.json" \
+            env -u AGENT_API_TOKEN -u NEAR_SIGNER_PRIVATE_KEY \
+              -u NEAR_APPROVAL_SIGNER_PRIVATE_KEY -u NEAR_EXPIRY_SIGNER_PRIVATE_KEY \
+              node relay/server.js >"$temp_dir/relay.log" 2>&1 &
+          relay_pid=$!
+          cleanup() {
+            kill "$relay_pid" 2>/dev/null || true
+            wait "$relay_pid" 2>/dev/null || true
+            rm -rf "$temp_dir"
+          }
+          trap cleanup EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent "http://127.0.0.1:$port/health" >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent "http://127.0.0.1:$port/health"
+          grep -q '"event":"recovery.monitor.skipped"' "$temp_dir/relay.log"
+          if grep -q 'TypeError' "$temp_dir/relay.log"; then
+            cat "$temp_dir/relay.log"
+            exit 1
+          fi
 
   contract:
     runs-on: ubuntu-latest
@@ -91,3 +122,20 @@ jobs:
             firmware/.pio/build/esp32dev/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
+
+  near-cli-readonly:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install pinned near-cli-rs
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/near-cli-rs/releases/download/v0.7.4/near-cli-rs-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Run every documented read-only Testnet inspection command
+        shell: bash
+        run: |
+          set -euo pipefail
+          near contract call-function as-read-only manextech.testnet get_policy json-args '{}' network-config testnet now
+          utc_day="$(($(date -u +%s) / 86400))"
+          near contract call-function as-read-only manextech.testnet get_daily_usage json-args "{\"utc_day\": ${utc_day}}" network-config testnet now
+          near contract call-function as-read-only manextech.testnet get_payment json-args '{"payment_id": 4}' network-config testnet now
+          near contract call-function as-read-only manextech.testnet get_storage_metrics json-args '{}' network-config testnet now

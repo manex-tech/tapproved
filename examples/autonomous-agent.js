@@ -1,4 +1,10 @@
 import { pathToFileURL } from "node:url";
+import { randomBytes } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createRelayServer } from "../relay/server.js";
+import { JsonIdempotencyStore } from "../relay/payment-requests.js";
 import {
   TapprovedClient,
   PolicyViolationError,
@@ -110,9 +116,71 @@ export class AutonomousAgent {
   }
 }
 
+async function runLocalSimulation() {
+  const token = randomBytes(32).toString("base64url");
+  const directory = await mkdtemp(join(tmpdir(), "tapproved-agent-simulation-"));
+  const store = new JsonIdempotencyStore(join(directory, "idempotency.json"));
+  const policy = {
+    soft_limit_yocto: "10000000000000000000000",
+    hard_limit_yocto: "100000000000000000000000",
+    daily_limit_yocto: "500000000000000000000000",
+    allowed_recipients: ["manex-agent.testnet"]
+  };
+  let nextPaymentId = 0;
+  const server = createRelayServer({
+    agentApiToken: token,
+    idempotencyStore: store,
+    getPolicy: async () => policy,
+    submitPayment: async (request) => {
+      const id = String(++nextPaymentId);
+      const status = BigInt(request.amount_yocto) <= BigInt(policy.soft_limit_yocto)
+        ? "approved"
+        : "pending";
+      return {
+        transaction_hash: `simulation-tx-${id}`,
+        payment: {
+          id,
+          agent_id: "manex-agent.testnet",
+          recipient_id: request.recipient_id,
+          amount_yocto: request.amount_yocto,
+          status,
+          hardware_approved: false
+        }
+      };
+    }
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    console.log("[Agent] Running in-process simulation; no NEAR transactions are sent.");
+    const agent = new AutonomousAgent({
+      relayUrl: `http://127.0.0.1:${address.port}`,
+      token
+    });
+    await agent.runLifecycleDemo();
+  } finally {
+    server.closeAllConnections();
+    if (server.listening) await new Promise((resolve) => server.close(resolve));
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 async function main() {
-  const agent = new AutonomousAgent();
-  await agent.runLifecycleDemo();
+  if (process.env.TAPPROVED_RELAY_URL) {
+    if (!process.env.AGENT_API_TOKEN) {
+      throw new Error("AGENT_API_TOKEN is required when TAPPROVED_RELAY_URL points to an external relay");
+    }
+    const agent = new AutonomousAgent({
+      relayUrl: process.env.TAPPROVED_RELAY_URL,
+      token: process.env.AGENT_API_TOKEN
+    });
+    await agent.runLifecycleDemo();
+    return;
+  }
+  await runLocalSimulation();
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
