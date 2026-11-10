@@ -625,13 +625,11 @@ export function createRelayServer(options = {}) {
         return;
       }
       if (pathname === "/policy") {
-        let policy = cachedDashboardSummary?.policy;
-        if (!policy) {
-          try {
-            policy = await readPolicy();
-          } catch {
-            policy = cachedDashboardSummary?.policy || null;
-          }
+        let policy;
+        try {
+          policy = await readPolicy();
+        } catch {
+          policy = cachedDashboardSummary?.policy || null;
         }
         if (!policy) {
           policy = await readPolicy();
