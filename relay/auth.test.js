@@ -28,16 +28,22 @@ test("fails closed when server token is missing, short or malformed", () => {
     assert.throws(() => createAgentAuthenticator({ token: invalid }), /AGENT_API_TOKEN/);
   }
   assert.deepEqual(resolveAgentApiToken({}), { token: DEV_AGENT_API_TOKEN, development: true });
-  const liveSignerEnv = { NEAR_SIGNER_PRIVATE_KEY: "ed25519:live-key" };
-  assert.throws(() => resolveAgentApiToken(liveSignerEnv), /non-development secret/);
-  assert.throws(() => resolveAgentApiToken({
-    ...liveSignerEnv, AGENT_API_TOKEN: DEV_AGENT_API_TOKEN
-  }), /non-development secret/);
-  assert.deepEqual(resolveAgentApiToken({
-    ...liveSignerEnv, AGENT_API_TOKEN: "a-real-agent-api-token-with-sufficient-entropy"
-  }), {
-    token: "a-real-agent-api-token-with-sufficient-entropy", development: false
-  });
+  for (const signerName of [
+    "NEAR_SIGNER_PRIVATE_KEY",
+    "NEAR_APPROVAL_SIGNER_PRIVATE_KEY",
+    "NEAR_EXPIRY_SIGNER_PRIVATE_KEY"
+  ]) {
+    const liveSignerEnv = { [signerName]: "ed25519:live-key" };
+    assert.throws(() => resolveAgentApiToken(liveSignerEnv), /non-development secret/);
+    assert.throws(() => resolveAgentApiToken({
+      ...liveSignerEnv, AGENT_API_TOKEN: DEV_AGENT_API_TOKEN
+    }), /non-development secret/);
+    assert.deepEqual(resolveAgentApiToken({
+      ...liveSignerEnv, AGENT_API_TOKEN: "a-real-agent-api-token-with-sufficient-entropy"
+    }), {
+      token: "a-real-agent-api-token-with-sufficient-entropy", development: false
+    });
+  }
 });
 
 test("does not throw for absent or malformed request objects", () => {

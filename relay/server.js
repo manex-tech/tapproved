@@ -721,21 +721,22 @@ async function startRelay() {
     if (!signerConfigured && unresolvedRequests.length === 0 && unresolvedOperations.length === 0) {
       logger.info("recovery.monitor.skipped", {
         component: "recovery-monitor",
-        reason: "read_only_mode_no_recovery_work"
+        reason: "read_only_mode_no_recovery_work",
+        message: "No signer credentials or unresolved journal entries; recovery monitoring is not needed in read-only mode."
       });
     } else {
       recoveryService = createRecoveryService({
-      store: idempotencyStore,
-      intervalMs: readRecoveryInterval(),
-      onResult: (result) => {
-        if (result?.state === "manual_review_required") {
-          logger.warn("recovery.manual_review_required", { component: "recovery-monitor", state: result.state });
+        store: idempotencyStore,
+        intervalMs: readRecoveryInterval(),
+        onResult: (result) => {
+          if (result?.state === "manual_review_required") {
+            logger.warn("recovery.manual_review_required", { component: "recovery-monitor", state: result.state });
+          }
+        },
+        onError: (error) => {
+          logger.error("recovery.monitor.failed", { component: "recovery-monitor", ...sanitizeError(error, "recovery_monitor_failed") });
         }
-      },
-      onError: (error) => {
-        logger.error("recovery.monitor.failed", { component: "recovery-monitor", ...sanitizeError(error, "recovery_monitor_failed") });
-      }
-    });
+      });
       recoveryService.start();
       logger.info("recovery.monitor.enabled", { component: "recovery-monitor" });
     }

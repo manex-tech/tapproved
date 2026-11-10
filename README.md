@@ -150,11 +150,11 @@ npm run agent:autonomous
 To exercise a separately running relay instead, open **two terminals**. In terminal 1, configure the relay's required signer keys and a strong `AGENT_API_TOKEN`, then run `npm start`. In terminal 2, set `TAPPROVED_RELAY_URL=http://127.0.0.1:3000` and the same `AGENT_API_TOKEN`, then run `npm run agent:autonomous`. A real relay requires valid signer configuration; the default no-`.env` path is simulation only.
 
 - **Lifecycle Simulated**:
-  1. Agent queries live on-chain spending policy via SDK.
-  2. Agent executes routine micropayments ($\le 0.01$ NEAR) with immediate autonomous approval.
-  3. Agent requests an elevated payment ($> 0.01$ NEAR), transitioning the request to `pending` on-chain.
-  4. Demonstrates handling of simulated physical button timeouts and recovery.
-  5. Simulates an operator physical button press yielding a valid Ed25519 signature and on-chain settlement.
+  1. Agent reads the fixed local policy through the in-process relay.
+  2. A routine payment is accepted by the local simulation adapter as `approved`.
+  3. An elevated payment is returned as `pending`.
+  4. A request to a non-allowlisted recipient is rejected by the agent-side policy check.
+  5. The adapter returns synthetic transaction identifiers only; no NEAR transaction, ESP32 signature, or physical button interaction occurs.
 
 ### Option 3: Interactive Real-Time Monitoring Dashboard
 Launches the relay server and the operator web dashboard:
@@ -170,7 +170,7 @@ npm start
   - **Simulation Controls**: One-click simulated button press and agent spend requests directly from the UI.
 
 ### Option 4: Live NEAR Testnet CLI Inspection (Read-Only)
-Inspect the canonical on-chain state directly on NEAR Testnet using `near-cli` without spending gas or modifying contract state:
+Inspect the canonical on-chain state directly on NEAR Testnet using **near-cli-rs v0.7.4** without spending gas or modifying contract state. The CI workflow installs this exact CLI version and runs all four commands below against Testnet.
 
 1. **Inspect Spending Policy:**
    ```bash
