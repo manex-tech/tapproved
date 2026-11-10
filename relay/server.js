@@ -719,8 +719,7 @@ async function startRelay() {
     if (!signerConfigured && unresolvedRequests.length === 0 && unresolvedOperations.length === 0) {
       logger.info("recovery.monitor.skipped", {
         component: "recovery-monitor",
-        reason: "read_only_mode_no_recovery_work",
-        message: "No signer credentials or unresolved journal entries; recovery monitoring is not needed in read-only mode."
+        reason: "No signer credentials or unresolved journal entries; recovery monitoring is not needed in read-only mode."
       });
     } else {
       recoveryService = createRecoveryService({
