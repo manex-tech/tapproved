@@ -281,7 +281,6 @@ The dashboard provides operators with complete situational awareness over agent 
 ## 9. Master Documentation Sitemap
 
 - [NEAR Hackathon Submission & Architecture](docs/HACKATHON.md) — Comprehensive hackathon overview, innovation summary, and submission metadata.
-- [Official Demo Video Script & Storyboard](docs/DEMO-VIDEO-SCRIPT.md) — Scene-by-scene script, visual directions, and timestamps for hackathon video submission.
 - [Security Threat Model & Analysis](docs/SECURITY-THREAT-MODEL.md) — Formal trust boundaries, threat scenarios, and blast-radius mitigations.
 - [AI Agent Integration Guide](docs/AGENT-INTEGRATION.md) — Complete SDK documentation, idempotency rules, and error codes.
 - [Master Development Checklist](docs/MASTER-DEVELOPMENT-CHECKLIST.md) — Canonical task-by-task execution evidence, CI run URLs, and milestone logs.
