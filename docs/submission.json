@@ -2,6 +2,11 @@
   "project_name": "Tapproved",
   "tagline": "Hardware-backed spending authorization for AI agents on NEAR",
   "description": "Tapproved enables autonomous AI agents to request payments from a NEAR smart contract treasury under strict policy limits. Routine payments execute automatically within configurable soft limits, while high-value payments strictly require physical human approval via an Ed25519-signing ESP32 hardware device.",
+  "tracks": [
+    "security",
+    "agents",
+    "business"
+  ],
   "repository": "https://github.com/manex-tech/tapproved",
   "license": "MIT",
   "network": "testnet",
@@ -21,7 +26,10 @@
     "state_migration": "https://explorer.testnet.near.org/transactions/4AXh7BECjmMy2X7JCmS8G3UdXbXvJMNzJNDrj6Cq87Sh",
     "recipient_allowlist_expansion": "https://explorer.testnet.near.org/transactions/CTT3bGrY1pzw276BTwVotsoP9A9WpnzGj8z5tTXtafDp",
     "payment_request_id_4": "https://explorer.testnet.near.org/transactions/6FY3y24tZ21Yb8vgDsHkMQU8qqYCuo6ESeJoybLUTFUu",
-    "payment_settlement_id_4": "https://explorer.testnet.near.org/transactions/C5fZ7UW8TW3nSwv8EhD4gh8GdmUpMdqvCjHAGA1fkUNi"
+    "payment_settlement_id_4": "https://explorer.testnet.near.org/transactions/C5fZ7UW8TW3nSwv8EhD4gh8GdmUpMdqvCjHAGA1fkUNi",
+    "payment_request_id_10": "https://explorer.testnet.near.org/transactions/GtxfhED8E3VZmH8Av9G3riuLo24bcFfPmJAVMLKLxDaS",
+    "payment_settlement_id_10": "https://explorer.testnet.near.org/transactions/EpGEwmDAQs8mJddqiC95y4hMYVmd7XFU7UCRHUTM5EC1",
+    "payment_request_id_11_pending_hardware": "https://explorer.testnet.near.org/transactions/7zkK6JNuwp7qFcNf4CTcH2UFiVco8JnvdY7hzuECjU25"
   },
   "features": [
     "Hardware-backed human-in-the-loop authorization",

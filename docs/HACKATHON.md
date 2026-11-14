@@ -19,7 +19,7 @@ Tapproved started as an experimental prototype. During the hackathon, we transfo
 | Component | Baseline State | Hackathon Advancements |
 |---|---|---|
 | **NEAR Contract** | Monolithic state with unindexed vector payments vulnerable to unbounded gas limits; incompatible legacy state on Testnet. | Migrated in-place on live Testnet `manextech.testnet` using guarded private migration; refactored to $O(1)$ `LookupMap` storage; implemented NEP-297 standard event emission (`payment_requested`, `payment_approved`, `payment_paid`); implemented `get_storage_metrics` staking monitor. |
-| **End-to-End Testnet Execution** | Unexercised callback settlement on Testnet. | Successfully executed and settled Payment #4 on NEAR Testnet (`0.001 NEAR` to `manex-agent.testnet`) via atomic Promise callback `on_transfer_result`. Verified balance increases and reservation reconciliation on-chain. |
+| **End-to-End Testnet Execution** | Unexercised callback settlement on Testnet. | Successfully executed and settled Payment #10 on NEAR Testnet (`0.005 NEAR` to `manextech.testnet`) via atomic Promise callback `on_transfer_result`. Verified balance increases and reservation reconciliation on-chain. |
 | **ESP32 Firmware** | Basic serial prototype targeting wrong contract. | Re-aligned to `manextech.testnet`; extracted testable C++ encoder with byte-for-byte protocol test vector parity; implemented debounced hardware button state machine (held-at-arrival rejection); implemented volatile scope-bound zeroizing memory buffers. |
 | **AI Agent SDK** | Basic one-off request script. | Built production-grade JavaScript/TypeScript SDK (`sdk/index.js`, `sdk/index.d.ts`) with typed error hierarchy (`AuthenticationError`, `PolicyViolationError`, `IdempotencyConflictError`), URL normalization, and `waitForPaymentResolution` with pending-approval event hooks. |
 | **Autonomous Agent Demo** | None. | Created `examples/autonomous-agent.js` demonstrating autonomous routine payments, high-value payment hardware gating, and automated policy violation rejection. |
@@ -38,9 +38,10 @@ All components run live on **NEAR Testnet**:
 - **Contract Code Deployment Tx**: [`4psHQnNteqE8SR6g9dBnSeu4smnpt3hDqXjFkzU3kzkU`](https://explorer.testnet.near.org/transactions/4psHQnNteqE8SR6g9dBnSeu4smnpt3hDqXjFkzU3kzkU)
 - **In-Place State Migration Tx**: [`4AXh7BECjmMy2X7JCmS8G3UdXbXvJMNzJNDrj6Cq87Sh`](https://explorer.testnet.near.org/transactions/4AXh7BECjmMy2X7JCmS8G3UdXbXvJMNzJNDrj6Cq87Sh)
 - **Recipient Allowlist Expansion Tx**: [`CTT3bGrY1pzw276BTwVotsoP9A9WpnzGj8z5tTXtafDp`](https://explorer.testnet.near.org/transactions/CTT3bGrY1pzw276BTwVotsoP9A9WpnzGj8z5tTXtafDp)
-- **Live Automatic Payment Request (ID #4) Tx**: [`6FY3y24tZ21Yb8vgDsHkMQU8qqYCuo6ESeJoybLUTFUu`](https://explorer.testnet.near.org/transactions/6FY3y24tZ21Yb8vgDsHkMQU8qqYCuo6ESeJoybLUTFUu)
-- **Automatic Execution & Promise Settlement Tx**: [`C5fZ7UW8TW3nSwv8EhD4gh8GdmUpMdqvCjHAGA1fkUNi`](https://explorer.testnet.near.org/transactions/C5fZ7UW8TW3nSwv8EhD4gh8GdmUpMdqvCjHAGA1fkUNi)
-- **First Hardware-Gated Payment (ID #3) Documented**: [`docs/TESTNET-HARDWARE-APPROVAL-MILESTONE.md`](TESTNET-HARDWARE-APPROVAL-MILESTONE.md)
+- **Live Automatic Payment Request (ID #10) Tx**: [`GtxfhED8E3VZmH8Av9G3riuLo24bcFfPmJAVMLKLxDaS`](https://explorer.testnet.near.org/transactions/GtxfhED8E3VZmH8Av9G3riuLo24bcFfPmJAVMLKLxDaS)
+- **Automatic Execution & Promise Settlement (ID #10) Tx**: [`EpGEwmDAQs8mJddqiC95y4hMYVmd7XFU7UCRHUTM5EC1`](https://explorer.testnet.near.org/transactions/EpGEwmDAQs8mJddqiC95y4hMYVmd7XFU7UCRHUTM5EC1)
+- **Hardware-Gated Elevated Payment Request (ID #11) Tx**: [`7zkK6JNuwp7qFcNf4CTcH2UFiVco8JnvdY7hzuECjU25`](https://explorer.testnet.near.org/transactions/7zkK6JNuwp7qFcNf4CTcH2UFiVco8JnvdY7hzuECjU25)
+- **First Hardware-Gated Payment (ID #3) Milestone**: [`docs/TESTNET-HARDWARE-APPROVAL-MILESTONE.md`](TESTNET-HARDWARE-APPROVAL-MILESTONE.md)
 
 ---
 
@@ -81,7 +82,11 @@ The formal hackathon submission metadata is codified in `docs/submission.json`:
 {
   "project_name": "Tapproved",
   "tagline": "Hardware-backed spending authorization for AI agents on NEAR",
-  "track": "AI Agents & Security Infrastructure",
+  "tracks": [
+    "security",
+    "agents",
+    "business"
+  ],
   "repository": "https://github.com/manex-tech/tapproved",
   "license": "MIT",
   "network": "testnet",
@@ -91,8 +96,9 @@ The formal hackathon submission metadata is codified in `docs/submission.json`:
   "cryptography": "Ed25519",
   "verified_transactions": {
     "migration": "4AXh7BECjmMy2X7JCmS8G3UdXbXvJMNzJNDrj6Cq87Sh",
-    "automatic_payment_request": "6FY3y24tZ21Yb8vgDsHkMQU8qqYCuo6ESeJoybLUTFUu",
-    "automatic_payment_settlement": "C5fZ7UW8TW3nSwv8EhD4gh8GdmUpMdqvCjHAGA1fkUNi"
+    "automatic_payment_request": "GtxfhED8E3VZmH8Av9G3riuLo24bcFfPmJAVMLKLxDaS",
+    "automatic_payment_settlement": "EpGEwmDAQs8mJddqiC95y4hMYVmd7XFU7UCRHUTM5EC1",
+    "hardware_gated_request": "7zkK6JNuwp7qFcNf4CTcH2UFiVco8JnvdY7hzuECjU25"
   }
 }
 ```
