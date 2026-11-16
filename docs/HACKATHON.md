@@ -25,7 +25,7 @@ The strongest direct fits are **AI Security & Defense** and **Agent Economy**. P
 
 ## 3. Baseline vs. Hackathon Advancements
 
-Tapproved started as an experimental prototype. During the hackathon, we transformed it into an enterprise-grade, demonstrable, end-to-end authorization infrastructure:
+Tapproved started as an experimental prototype. During the hackathon, it was developed into an end-to-end authorization prototype. The implementation, automated verification, live Testnet transactions, and physical-device demonstration are separated in the [evidence matrix](EVIDENCE.md); claims below should be read within those evidence boundaries:
 
 | Component | Baseline State | Hackathon Advancements |
 |---|---|---|
@@ -41,7 +41,7 @@ Tapproved started as an experimental prototype. During the hackathon, we transfo
 
 ## 4. Canonical On-Chain Testnet Evidence
 
-All components run live on **NEAR Testnet**:
+The **contract is deployed on NEAR Testnet**. The relay, firmware, SDK, examples, and dashboard are implemented in the repository; they are not all continuously hosted services. The linked transactions prove the specific on-chain operations described, while the hardware milestone and public demo provide the physical-device evidence. See [the implementation and evidence matrix](EVIDENCE.md) for scope and limitations:
 
 - **Contract Account & Treasury**: [`manextech.testnet`](https://explorer.testnet.near.org/accounts/manextech.testnet)
 - **Registered Agent Account**: [`manex-agent.testnet`](https://explorer.testnet.near.org/accounts/manex-agent.testnet)
@@ -75,7 +75,7 @@ npm run check
 ```bash
 npm run agent:autonomous
 ```
-*Demonstrates the AI agent inspecting live on-chain policy, requesting routine spends, handling high-value hardware gating, and reacting to policy violations.*
+*Runs a deterministic local simulation using an in-process relay and local policy/payment adapter. It demonstrates the agent lifecycle and policy branches, but does not inspect live on-chain policy or submit live Testnet transactions. See the separate live transaction evidence above.*
 
 ### 3. Launch the Live Dashboard
 ```bash
