@@ -284,7 +284,7 @@ The dashboard provides operators with complete situational awareness over agent 
 
 ## 9. Demo Post & Media Submission
 
-- **Public Demo Post on X**: Published on X tagging `@NEARProtocol` and `#NEARHackathon`. Demonstrates the complete flow from agent spend request to physical button actuation and on-chain explorer confirmation.
+- **Public Demo Post on X**: [Watch the demo](https://x.com/manextech/status/2120119706447143052). Published on X tagging `@NEARProtocol` and `#NEARHackathon`. Demonstrates the complete flow from agent spend request to physical button actuation and on-chain explorer confirmation.
 - **Submission Metadata**: Complete API submission record documented in [`docs/submission.json`](docs/submission.json).
 
 ---
