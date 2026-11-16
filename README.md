@@ -109,7 +109,7 @@ sequenceDiagram
 
 ## 4. Verified Live Testnet Evidence
 
-All components of Tapproved are live and verified on **NEAR Testnet**:
+The **NEAR Testnet contract is deployed**, and the repository contains the relay, ESP32 firmware, agent SDK/examples, and dashboard implementation. The live transactions below prove specific contract paths; they do not imply that every component is continuously hosted or that CI has physical hardware attached. See the [implementation and evidence matrix](docs/EVIDENCE.md) for exactly what is source-implemented, CI-verified, and demonstrated on hardware.
 
 | Milestone | Entity / Method | Live Explorer Link & Hash |
 |---|---|---|
