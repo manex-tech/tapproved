@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 > **Built for NEAR HACKATHON**  
-> Tracks: **AI Security & Defense** (`security`) and **Agent Economy** (`agents`).  
+> Tracks: **AI Security & Defense** (`security`), **Privacy & Private AI** (`privacy`), **Agent Economy** (`agents`), and **Open Innovation** (`open`).  
 > **Testnet only. Unaudited.** Do not use real funds.  
 >
 > **Hardware-backed spending authorization for autonomous AI agents on NEAR.** Routine payments execute automatically within strict policy limits; elevated payments require a physical button press on an ESP32 hardware device generating an Ed25519 signature.
@@ -39,6 +39,18 @@ Direct dependencies include `near-api-js 7.3.1` and `serialport 12.0.0` (Node.js
 ---
 
 ## 1. Problem & Innovation
+
+### NEAR HACKATHON Track Alignment
+
+Tapproved is submitted across four tracks, with its strongest direct fit in AI Security & Defense and Agent Economy:
+
+- **AI Security & Defense** (`security`): On-chain spending policies, restricted function-call access keys, daily quotas, and physical approval for elevated payments reduce the risks of autonomous agent custody.
+- **Privacy & Private AI** (`privacy`): The device keeps its Ed25519 signing seed off the agent host and performs signing on the ESP32. This is a limited key-isolation and credential-protection contribution; Tapproved does **not** implement confidential computation, private AI inference, TEEs, or end-to-end private data processing.
+- **Agent Economy** (`agents`): AI agents can request and execute policy-bounded payments on NEAR, with asynchronous settlement and a hardware approval path for higher-value spending.
+- **Open Innovation** (`open`): Tapproved explores a hardware-backed authorization layer connecting autonomous intelligence, programmable money, and human-controlled ownership of funds.
+
+Track inclusion describes the project's relevant contribution, not a claim that it implements every technology or use case named in a track.
+
 
 | The AI Agent Dilemma | The Tapproved Solution |
 |---|---|
