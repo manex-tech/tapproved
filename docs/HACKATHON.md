@@ -12,7 +12,18 @@ Autonomous AI agents are increasingly entrusted with on-chain resources, but gra
 
 ---
 
-## 2. Baseline vs. Hackathon Advancements
+## 2. NEAR HACKATHON Track Alignment
+
+Tapproved is entered in four tracks:
+
+- **AI Security & Defense** (`security`): Its primary fit. On-chain spending limits, allowlists, restricted agent permissions, daily quotas, and physical approval protect funds from unconstrained agent activity.
+- **Privacy & Private AI** (`privacy`): The ESP32 keeps the Ed25519 signing seed off the agent host and performs signing on the device. This is a narrow credential-isolation contribution, not a private-AI or confidential-computing implementation. Tapproved does not currently provide private inference, TEEs, or confidential data processing.
+- **Agent Economy** (`agents`): The system enables autonomous agents to request policy-bounded NEAR payments and settle them on-chain, with human authorization for elevated spending.
+- **Open Innovation** (`open`): The project explores a new hardware-backed authorization primitive at the intersection of AI agents, programmable money, and human control of digital assets.
+
+The strongest direct fits are **AI Security & Defense** and **Agent Economy**. Privacy & Private AI is a narrower adjacent fit based on device-side signing-key isolation; Open Innovation reflects the cross-domain design.
+
+## 3. Baseline vs. Hackathon Advancements
 
 Tapproved started as an experimental prototype. During the hackathon, we transformed it into an enterprise-grade, demonstrable, end-to-end authorization infrastructure:
 
@@ -28,7 +39,7 @@ Tapproved started as an experimental prototype. During the hackathon, we transfo
 
 ---
 
-## 3. Canonical On-Chain Testnet Evidence
+## 4. Canonical On-Chain Testnet Evidence
 
 All components run live on **NEAR Testnet**:
 
@@ -45,7 +56,7 @@ All components run live on **NEAR Testnet**:
 
 ---
 
-## 4. Reproducible Demonstration Runbook
+## 5. Reproducible Demonstration Runbook
 
 ### Prerequisites
 - Node.js >= 22.22.2
@@ -74,7 +85,7 @@ npm start
 
 ---
 
-## 5. Submission Metadata JSON
+## 6. Submission Metadata JSON
 
 The formal hackathon submission metadata is codified in `docs/submission.json`:
 
@@ -84,8 +95,9 @@ The formal hackathon submission metadata is codified in `docs/submission.json`:
   "tagline": "Hardware-backed spending authorization for AI agents on NEAR",
   "tracks": [
     "security",
+    "privacy",
     "agents",
-    "business"
+    "open"
   ],
   "repository": "https://github.com/manex-tech/tapproved",
   "license": "MIT",
