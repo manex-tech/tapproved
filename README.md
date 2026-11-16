@@ -28,16 +28,6 @@ AI tools assisted with implementation, debugging, test development, and document
 
 Direct dependencies include `near-api-js 7.3.1` and `serialport 12.0.0` (Node.js); `near-sdk 5.17.2` and `borsh 1.5.7` (Rust contract); and `Crypto 0.4.0` and `ArduinoJson 7.2.1` (ESP32 firmware). The firmware build uses PlatformIO's `espressif32 6.10.0` platform. See `package-lock.json`, `contract/Cargo.toml`, and `firmware/platformio.ini` for pinned dependency declarations and transitive dependency details.
 
-### Known limitations
-
-- **Blind signing / display trust:** the ESP32 has no trusted display. Payment details are presented through host-controlled USB serial, so a compromised host can misrepresent what the physical button press authorizes. A directly driven trusted display is not implemented; see the [Threat Model, H10](docs/SECURITY-THREAT-MODEL.md).
-- **Extractable device key:** the Ed25519 seed is stored in ordinary ESP32 NVS. Flash encryption and secure boot are not configured, so physical flash/debug access may expose the key. See the [ESP32 Security Assessment](docs/ESP32-SECURITY-ASSESSMENT.md).
-- **Testnet only:** the contract, agent, and documented flows target NEAR Testnet. No mainnet deployment is supported.
-- **Autonomous soft-limit exposure:** a compromised agent key or relay can make allowlisted soft-limit payments autonomously up to the remaining daily spending cap. Payments above the soft limit require a valid device signature.
-- **Unaudited:** no independent smart-contract, firmware, or application security audit has been completed.
-
----
-
 ## 1. Problem & Innovation
 
 ### NEAR HACKATHON Track Alignment
